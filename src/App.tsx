@@ -9,6 +9,8 @@ import {
   createInitialState,
   disconnectPlayer,
   getPlayerView,
+  hostRerollPlayerTrait,
+  hostUpdatePlayerTrait,
   proceedAfterRoundResult,
   resolveVotes,
   revealTrait,
@@ -17,6 +19,7 @@ import {
   startRevealPhase,
   startVotingPhase,
   useSpecialCard,
+  useTraitAbility,
 } from './game/engine';
 import {
   ClientAction,
@@ -107,6 +110,21 @@ export function App() {
             action.cardId,
             action.targetPlayerId,
             action.category
+          );
+          if (res.error) {
+            if (senderId === playerId) setErrorText(res.error);
+            else hostPeerRef.current?.sendToPlayer(senderId, { type: 'ERROR', message: res.error });
+            return;
+          }
+          syncAllViews(res.state);
+          break;
+        }
+        case 'USE_TRAIT_ABILITY': {
+          const res = useTraitAbility(
+            current,
+            senderId,
+            action.category,
+            action.targetPlayerId
           );
           if (res.error) {
             if (senderId === playerId) setErrorText(res.error);
@@ -303,6 +321,9 @@ export function App() {
       onUseSpecial={(cardId, targetPlayerId, category) =>
         dispatchAction({ type: 'USE_SPECIAL', cardId, targetPlayerId, category })
       }
+      onUseTraitAbility={(category, targetPlayerId) =>
+        dispatchAction({ type: 'USE_TRAIT_ABILITY', category, targetPlayerId })
+      }
       onCastVote={(targetPlayerId) =>
         dispatchAction({ type: 'CAST_VOTE', targetPlayerId })
       }
@@ -310,6 +331,21 @@ export function App() {
       onHostNextPhase={hostNextPhase}
       onHostAutoReveal={hostAutoReveal}
       onHostPlayAgain={hostPlayAgain}
+      onHostGetPlayer={(targetId) =>
+        hostStateRef.current?.players.find((p) => p.id === targetId) ?? null
+      }
+      onHostRerollTrait={(targetId, category) => {
+        if (hostStateRef.current) {
+          syncAllViews(hostRerollPlayerTrait(hostStateRef.current, targetId, category));
+        }
+      }}
+      onHostUpdateTrait={(targetId, category, value, revealed) => {
+        if (hostStateRef.current) {
+          syncAllViews(
+            hostUpdatePlayerTrait(hostStateRef.current, targetId, category, value, revealed)
+          );
+        }
+      }}
       onLeave={handleLeave}
     />
   );

@@ -3,18 +3,22 @@ export type TraitCategory =
   | 'biology'
   | 'health'
   | 'hobby'
-  | 'luggage'
+  | 'gear'
+  | 'pocket'
   | 'fact'
-  | 'phobia';
+  | 'phobia'
+  | 'extra';
 
 export const TRAIT_LABELS: Record<TraitCategory, string> = {
   profession: 'Профессия',
   biology: 'Биология',
   health: 'Здоровье',
   hobby: 'Хобби',
-  luggage: 'Багаж',
+  gear: 'Крупный багаж',
+  pocket: 'Мелкий инвентарь',
   fact: 'Факт / Черта',
   phobia: 'Фобия',
+  extra: 'Доп. информация',
 };
 
 export const TRAIT_ORDER: TraitCategory[] = [
@@ -22,15 +26,26 @@ export const TRAIT_ORDER: TraitCategory[] = [
   'biology',
   'health',
   'hobby',
-  'luggage',
+  'gear',
+  'pocket',
   'fact',
   'phobia',
+  'extra',
 ];
 
 export interface TraitCard {
   category: TraitCategory;
   value: string;
   revealed: boolean;
+}
+
+export type TraitAbilityKind = 'heal' | 'harm' | 'repair_bunker' | 'scout';
+
+export interface TraitAbilityInfo {
+  kind: TraitAbilityKind;
+  title: string;
+  description: string;
+  needsTargetPlayer: boolean;
 }
 
 export type SpecialCardType =
@@ -61,6 +76,7 @@ export interface Player {
   alive: boolean;
   traits: Record<TraitCategory, TraitCard>;
   specialCards: SpecialCard[];
+  usedTraitAbilities: TraitCategory[];
   revealedThisRound: boolean;
   hasImmunity: boolean;
   voteWeight: number;
@@ -201,6 +217,11 @@ export type ClientAction =
       cardId: string;
       targetPlayerId?: string;
       category?: TraitCategory;
+    }
+  | {
+      type: 'USE_TRAIT_ABILITY';
+      category: TraitCategory;
+      targetPlayerId?: string;
     }
   | { type: 'CAST_VOTE'; targetPlayerId: string }
   | { type: 'CHAT'; text: string };

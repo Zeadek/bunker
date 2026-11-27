@@ -7,20 +7,27 @@ import {
   Flame,
   LogOut,
   MessageSquare,
+  RefreshCw,
   RotateCcw,
   Send,
   Shield,
+  SlidersHorizontal,
   Sparkles,
   User,
   Users,
   Vote,
+  X,
+  Zap,
 } from 'lucide-react';
+import { getTraitAbility } from '../game/abilities';
 import {
   GamePhase,
+  Player,
   PlayerView,
   SpecialCard,
   TRAIT_LABELS,
   TRAIT_ORDER,
+  TraitAbilityInfo,
   TraitCategory,
 } from '../game/types';
 
@@ -30,11 +37,20 @@ interface GameScreenProps {
   errorText: string | null;
   onRevealTrait: (category: TraitCategory) => void;
   onUseSpecial: (cardId: string, targetPlayerId?: string, category?: TraitCategory) => void;
+  onUseTraitAbility: (category: TraitCategory, targetPlayerId?: string) => void;
   onCastVote: (targetPlayerId: string) => void;
   onSendChat: (text: string) => void;
   onHostNextPhase: () => void;
   onHostAutoReveal: () => void;
   onHostPlayAgain: () => void;
+  onHostGetPlayer?: (playerId: string) => Player | null;
+  onHostRerollTrait?: (playerId: string, category: TraitCategory) => void;
+  onHostUpdateTrait?: (
+    playerId: string,
+    category: TraitCategory,
+    value: string,
+    revealed?: boolean
+  ) => void;
   onLeave: () => void;
 }
 
@@ -54,19 +70,31 @@ export const GameScreen: React.FC<GameScreenProps> = ({
   errorText,
   onRevealTrait,
   onUseSpecial,
+  onUseTraitAbility,
   onCastVote,
   onSendChat,
   onHostNextPhase,
   onHostAutoReveal,
   onHostPlayAgain,
+  onHostGetPlayer,
+  onHostRerollTrait,
+  onHostUpdateTrait,
   onLeave,
 }) => {
   const [mobileTab, setMobileTab] = useState<'me' | 'players' | 'bunker' | 'chat'>('me');
   const [chatInput, setChatInput] = useState('');
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
   const [activeSpecial, setActiveSpecial] = useState<SpecialCard | null>(null);
+  const [activeAbility, setActiveAbility] = useState<{
+    category: TraitCategory;
+    info: TraitAbilityInfo;
+  } | null>(null);
   const [targetPlayerId, setTargetPlayerId] = useState('');
   const [targetCategory, setTargetCategory] = useState<TraitCategory>('profession');
+  const [showMasterPanel, setShowMasterPanel] = useState(false);
+  const [masterPlayerId, setMasterPlayerId] = useState('');
+  const [masterRevealSpoilers, setMasterRevealSpoilers] = useState(false);
+  const [masterEdits, setMasterEdits] = useState<Partial<Record<TraitCategory, string>>>({});
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -112,6 +140,27 @@ export const GameScreen: React.FC<GameScreenProps> = ({
     setActiveSpecial(null);
   };
 
+  const openAbilityModal = (category: TraitCategory, info: TraitAbilityInfo) => {
+    if (!info.needsTargetPlayer) {
+      onUseTraitAbility(category);
+      return;
+    }
+    const firstTarget =
+      info.kind === 'heal'
+        ? me?.id ?? view.players.find((p) => p.alive)?.id ?? ''
+        : view.players.find((p) => p.alive && p.id !== me?.id)?.id ?? '';
+    setTargetPlayerId(firstTarget);
+    setActiveAbility({ category, info });
+  };
+
+  const openMasterPanel = () => {
+    const firstId = view.players[0]?.id ?? '';
+    setMasterPlayerId(firstId);
+    setMasterRevealSpoilers(false);
+    setMasterEdits({});
+    setShowMasterPanel(true);
+  };
+
   const renderMySection = () => (
     <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -129,6 +178,8 @@ export const GameScreen: React.FC<GameScreenProps> = ({
               const trait = me.traits[cat];
               const canReveal =
                 view.phase === 'reveal' && isMyTurn && !trait.revealed && me.alive;
+              const ability = getTraitAbility(cat, trait.value);
+              const abilityUsed = me.usedTraitAbilities.includes(cat);
 
               return (
                 <div
@@ -136,34 +187,52 @@ export const GameScreen: React.FC<GameScreenProps> = ({
                   className="card-subtle"
                   style={{
                     display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    gap: 10,
+                    flexDirection: 'column',
+                    gap: 8,
                     borderColor: trait.revealed ? 'rgba(16,185,129,0.35)' : undefined,
                   }}
                 >
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase' }}>
-                      {TRAIT_LABELS[cat]}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase' }}>
+                        {TRAIT_LABELS[cat]}
+                      </div>
+                      <div style={{ fontSize: 14, fontWeight: 600, wordBreak: 'break-word' }}>
+                        {trait.value}
+                      </div>
                     </div>
-                    <div style={{ fontSize: 14, fontWeight: 600, wordBreak: 'break-word' }}>
-                      {trait.value}
-                    </div>
+                    {trait.revealed ? (
+                      <span className="badge badge-ok" style={{ flexShrink: 0 }}>
+                        <Eye size={13} /> Вскрыто
+                      </span>
+                    ) : canReveal ? (
+                      <button
+                        className="btn btn-primary"
+                        style={{ padding: '7px 12px', fontSize: 12, flexShrink: 0 }}
+                        onClick={() => onRevealTrait(cat)}
+                      >
+                        Вскрыть
+                      </button>
+                    ) : (
+                      <span className="badge" style={{ flexShrink: 0 }}>Скрыто</span>
+                    )}
                   </div>
-                  {trait.revealed ? (
-                    <span className="badge badge-ok" style={{ flexShrink: 0 }}>
-                      <Eye size={13} /> Вскрыто
-                    </span>
-                  ) : canReveal ? (
-                    <button
-                      className="btn btn-primary"
-                      style={{ padding: '7px 12px', fontSize: 12, flexShrink: 0 }}
-                      onClick={() => onRevealTrait(cat)}
-                    >
-                      Вскрыть
-                    </button>
-                  ) : (
-                    <span className="badge" style={{ flexShrink: 0 }}>Скрыто</span>
+
+                  {ability && me.alive && view.phase !== 'game_over' && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, borderTop: '1px solid var(--border)', paddingTop: 6 }}>
+                      <span style={{ fontSize: 11, color: 'var(--muted)' }}>{ability.description}</span>
+                      {abilityUsed ? (
+                        <span className="badge" style={{ flexShrink: 0 }}>Использовано</span>
+                      ) : (
+                        <button
+                          className="btn btn-outline"
+                          style={{ padding: '5px 10px', fontSize: 12, flexShrink: 0, borderColor: 'var(--amber)', color: 'var(--amber)' }}
+                          onClick={() => openAbilityModal(cat, ability)}
+                        >
+                          <Zap size={13} /> {ability.title}
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
               );
@@ -444,6 +513,15 @@ export const GameScreen: React.FC<GameScreenProps> = ({
                 <RotateCcw size={15} /> Сыграть ещё
               </button>
             )}
+            {isHost && (
+              <button
+                className="btn btn-outline"
+                onClick={openMasterPanel}
+                title="Мастер-панель (редактор слотов игроков)"
+              >
+                <SlidersHorizontal size={15} /> Редактор
+              </button>
+            )}
             <button className="btn btn-outline" onClick={onLeave} title="Выйти">
               <LogOut size={16} />
             </button>
@@ -586,6 +664,199 @@ export const GameScreen: React.FC<GameScreenProps> = ({
               <button className="btn btn-primary" onClick={submitSpecialModal}>
                 Применить
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Trait Ability Modal */}
+      {activeAbility && (
+        <div className="modal-backdrop" onClick={() => setActiveAbility(null)}>
+          <div
+            className="card"
+            style={{ width: '100%', maxWidth: 400, display: 'flex', flexDirection: 'column', gap: 12 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 style={{ margin: 0 }}>{activeAbility.info.title}</h3>
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>
+              {activeAbility.info.description}
+            </p>
+            <div>
+              <label style={{ fontSize: 12, color: 'var(--muted)' }}>Выберите игрока</label>
+              <select
+                className="input"
+                value={targetPlayerId}
+                onChange={(e) => setTargetPlayerId(e.target.value)}
+              >
+                {view.players
+                  .filter(
+                    (p) =>
+                      p.alive &&
+                      (activeAbility.info.kind === 'heal' ? true : p.id !== me?.id)
+                  )
+                  .map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+              </select>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button className="btn btn-outline" onClick={() => setActiveAbility(null)}>
+                Отмена
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  onUseTraitAbility(activeAbility.category, targetPlayerId);
+                  setActiveAbility(null);
+                }}
+              >
+                Применить
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Host Master Panel Modal */}
+      {showMasterPanel && isHost && (
+        <div className="modal-backdrop" onClick={() => setShowMasterPanel(false)}>
+          <div
+            className="card"
+            style={{
+              width: '100%',
+              maxWidth: 620,
+              maxHeight: '85dvh',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h3 style={{ margin: 0 }}>Мастер-панель хоста</h3>
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                  Редактирование слотов игроков. По умолчанию работает вслепую (без спойлеров).
+                </div>
+              </div>
+              <button
+                className="btn btn-outline"
+                style={{ padding: 6 }}
+                onClick={() => setShowMasterPanel(false)}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <select
+                className="input"
+                style={{ flex: 1, minWidth: 180 }}
+                value={masterPlayerId}
+                onChange={(e) => {
+                  setMasterPlayerId(e.target.value);
+                  setMasterRevealSpoilers(false);
+                  setMasterEdits({});
+                }}
+              >
+                {view.players.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} {p.id === me?.id ? '(Вы)' : ''}
+                  </option>
+                ))}
+              </select>
+
+              <button
+                className={`btn ${masterRevealSpoilers ? 'btn-danger' : 'btn-outline'}`}
+                onClick={() => {
+                  const next = !masterRevealSpoilers;
+                  setMasterRevealSpoilers(next);
+                  if (next && onHostGetPlayer) {
+                    const full = onHostGetPlayer(masterPlayerId);
+                    if (full) {
+                      const vals: Partial<Record<TraitCategory, string>> = {};
+                      for (const c of TRAIT_ORDER) vals[c] = full.traits[c].value;
+                      setMasterEdits(vals);
+                    }
+                  }
+                }}
+              >
+                <Eye size={15} />
+                {masterRevealSpoilers ? 'Скрыть статы' : 'Показать вручную (спойлер)'}
+              </button>
+            </div>
+
+            <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {TRAIT_ORDER.map((cat) => {
+                const fullPlayer = masterRevealSpoilers ? onHostGetPlayer?.(masterPlayerId) : null;
+                const trait = fullPlayer?.traits[cat];
+                return (
+                  <div key={cat} className="card-subtle" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                      <strong style={{ fontSize: 12, color: 'var(--amber)' }}>
+                        {TRAIT_LABELS[cat]}
+                      </strong>
+                      <button
+                        className="btn btn-outline"
+                        style={{ padding: '4px 10px', fontSize: 12 }}
+                        onClick={() => {
+                          onHostRerollTrait?.(masterPlayerId, cat);
+                          if (masterRevealSpoilers && onHostGetPlayer) {
+                            const updated = onHostGetPlayer(masterPlayerId);
+                            if (updated) {
+                              setMasterEdits((prev) => ({ ...prev, [cat]: updated.traits[cat].value }));
+                            }
+                          }
+                        }}
+                      >
+                        <RefreshCw size={12} /> Перероллить вслепую
+                      </button>
+                    </div>
+
+                    {masterRevealSpoilers && trait && (
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <input
+                          className="input"
+                          style={{ padding: '6px 10px', fontSize: 13 }}
+                          value={masterEdits[cat] ?? trait.value}
+                          onChange={(e) =>
+                            setMasterEdits((prev) => ({ ...prev, [cat]: e.target.value }))
+                          }
+                        />
+                        <button
+                          className="btn btn-primary"
+                          style={{ padding: '6px 10px', fontSize: 12 }}
+                          onClick={() =>
+                            onHostUpdateTrait?.(
+                              masterPlayerId,
+                              cat,
+                              masterEdits[cat] ?? trait.value
+                            )
+                          }
+                        >
+                          Сохр.
+                        </button>
+                        <button
+                          className={`badge ${trait.revealed ? 'badge-ok' : ''}`}
+                          style={{ cursor: 'pointer', flexShrink: 0 }}
+                          onClick={() =>
+                            onHostUpdateTrait?.(
+                              masterPlayerId,
+                              cat,
+                              masterEdits[cat] ?? trait.value,
+                              !trait.revealed
+                            )
+                          }
+                        >
+                          {trait.revealed ? 'Открыто' : 'Скрыто'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>

@@ -6,11 +6,14 @@ import {
   computeKicksSchedule,
   createInitialState,
   getPlayerView,
+  hostRerollPlayerTrait,
+  hostUpdatePlayerTrait,
   proceedAfterRoundResult,
   revealTrait,
   startGame,
   startRevealPhase,
   startVotingPhase,
+  useTraitAbility,
 } from './engine';
 
 describe('Bunker game engine', () => {
@@ -101,5 +104,33 @@ describe('Bunker game engine', () => {
     expect(ALL_PACKS.fantasy.catastrophes.some((c) => c.id === started.catastrophe?.id)).toBe(true);
     expect(ALL_PACKS.fantasy.traits.profession).toContain(started.players[0].traits.profession.value);
     expect(ALL_PACKS.fantasy.traits.biology).toContain(started.players[0].traits.biology.value);
+    expect(ALL_PACKS.fantasy.traits.extra).toContain(started.players[0].traits.extra.value);
+    expect(ALL_PACKS.fantasy.traits.gear).toContain(started.players[0].traits.gear.value);
+    expect(ALL_PACKS.fantasy.traits.pocket).toContain(started.players[0].traits.pocket.value);
+  });
+
+  it('supports trait abilities (harm/heal) and host slot editing', () => {
+    let state = createInitialState('ABIL1', 'p1', 'Хост');
+    state = addOrReconnectPlayer(state, 'p2', 'Ассасин').state;
+    state = startGame(state).state;
+
+    // Host edits p2's pocket to dagger and p1's profession to surgeon
+    state = hostUpdatePlayerTrait(state, 'p2', 'pocket', 'Отравленный кинжал ассасина', false);
+    state = hostUpdatePlayerTrait(state, 'p1', 'profession', 'Хирург-травматолог (стаж 9 лет)');
+
+    // p2 harms p1
+    const harmed = useTraitAbility(state, 'p2', 'pocket', 'p1');
+    expect(harmed.error).toBeUndefined();
+    expect(harmed.state.players[0].traits.health.value).toContain('Ранение');
+
+    // p1 heals self
+    const healed = useTraitAbility(harmed.state, 'p1', 'profession', 'p1');
+    expect(healed.error).toBeUndefined();
+    expect(healed.state.players[0].traits.health.value).toContain('Подлечен');
+
+    // Host blind reroll changes value
+    const beforeExtra = healed.state.players[1].traits.extra.value;
+    const rerolled = hostRerollPlayerTrait(healed.state, 'p2', 'extra');
+    expect(rerolled.players[1].traits.extra.value).not.toBe(beforeExtra);
   });
 });

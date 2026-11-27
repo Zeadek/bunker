@@ -1,3 +1,4 @@
+import { getTraitAbility } from './abilities';
 import {
   ALL_PACKS,
   SPECIAL_CARD_TEMPLATES,
@@ -94,6 +95,7 @@ function createEmptyPlayer(id: string, name: string, isHost: boolean): Player {
     alive: true,
     traits,
     specialCards: [],
+    usedTraitAbilities: [],
     revealedThisRound: false,
     hasImmunity: false,
     voteWeight: 1,
@@ -226,6 +228,7 @@ export function startGame(state: GameState): { state: GameState; error?: string 
       alive: true,
       traits,
       specialCards,
+      usedTraitAbilities: [],
       revealedThisRound: false,
       hasImmunity: false,
       voteWeight: 1,
@@ -684,13 +687,13 @@ export function useSpecialCard(
 
     case 'reroll_luggage': {
       const pool = mergePacks(state.settings.packs);
-      const newLuggage = shuffle(pool.traits.luggage)[0];
+      const newGear = shuffle(pool.traits.gear)[0];
       updatedPlayers = updatedPlayers.map((p) =>
         p.id === playerId
-          ? { ...p, traits: { ...p.traits, luggage: { ...p.traits.luggage, value: newLuggage } } }
+          ? { ...p, traits: { ...p.traits, gear: { ...p.traits.gear, value: newGear } } }
           : p
       );
-      logText = `${player.name} применил «${card.title}» и обновил багаж.`;
+      logText = `${player.name} применил «${card.title}» и обновил крупный багаж.`;
       break;
     }
 
@@ -761,6 +764,208 @@ export function useSpecialCard(
       logText
     ),
   };
+}
+
+export function useTraitAbility(
+  state: GameState,
+  playerId: string,
+  category: TraitCategory,
+  targetPlayerId?: string
+): { state: GameState; error?: string } {
+  if (state.phase === 'lobby' || state.phase === 'game_over') {
+    return { state, error: 'Способности можно применять только во время игры.' };
+  }
+
+  const player = state.players.find((p) => p.id === playerId);
+  if (!player || !player.alive) {
+    return { state, error: 'Выбывший игрок не может применять способности.' };
+  }
+
+  if (player.usedTraitAbilities.includes(category)) {
+    return { state, error: 'Способность этого слота уже использована.' };
+  }
+
+  const trait = player.traits[category];
+  const ability = getTraitAbility(category, trait.value);
+  if (!ability) {
+    return { state, error: 'У этой характеристики нет активной способности.' };
+  }
+
+  let updatedPlayers = state.players.map((p) =>
+    p.id === playerId
+      ? {
+          ...p,
+          usedTraitAbilities: [...p.usedTraitAbilities, category],
+          traits: {
+            ...p.traits,
+            [category]: { ...p.traits[category], revealed: true },
+          },
+        }
+      : p
+  );
+  let updatedBunker = state.bunker;
+  let logText = `${player.name} применил способность «${ability.title}».`;
+
+  switch (ability.kind) {
+    case 'heal': {
+      const target = updatedPlayers.find((p) => p.id === targetPlayerId && p.alive);
+      if (!target) return { state, error: 'Выберите живого игрока для лечения.' };
+      updatedPlayers = updatedPlayers.map((p) =>
+        p.id === target.id
+          ? {
+              ...p,
+              traits: {
+                ...p.traits,
+                health: {
+                  ...p.traits.health,
+                  value: 'Подлечен (стабильное состояние)',
+                },
+              },
+            }
+          : p
+      );
+      logText = `${player.name} («${trait.value}») подлечил игрока ${target.name}!`;
+      break;
+    }
+
+    case 'harm': {
+      const target = updatedPlayers.find(
+        (p) => p.id === targetPlayerId && p.id !== playerId && p.alive
+      );
+      if (!target) return { state, error: 'Выберите другого живого игрока.' };
+      const prevHealth = target.traits.health.value;
+      const nextHealth = prevHealth.includes('Ранение')
+        ? prevHealth
+        : `${prevHealth} + Ранение (после стычки)`;
+      updatedPlayers = updatedPlayers.map((p) =>
+        p.id === target.id
+          ? {
+              ...p,
+              traits: {
+                ...p.traits,
+                health: { ...p.traits.health, value: nextHealth },
+              },
+            }
+          : p
+      );
+      logText = `${player.name} применил «${trait.value}» против ${target.name} — здоровье ухудшилось!`;
+      break;
+    }
+
+    case 'repair_bunker': {
+      if (!updatedBunker) return { state, error: 'Бункер не найден.' };
+      const threat = updatedBunker.cards.find((c) => c.revealed && c.isThreat);
+      if (!threat) {
+        return { state, error: 'Сейчас нет открытых угроз бункера для устранения.' };
+      }
+      updatedBunker = {
+        ...updatedBunker,
+        cards: updatedBunker.cards.map((c) =>
+          c.id === threat.id
+            ? { ...c, isThreat: false, title: `Устранено: ${c.title}` }
+            : c
+        ),
+      };
+      logText = `${player.name} («${trait.value}») устранил угрозу «${threat.title}»!`;
+      break;
+    }
+
+    case 'scout': {
+      const target = updatedPlayers.find(
+        (p) => p.id === targetPlayerId && p.id !== playerId && p.alive
+      );
+      if (!target) return { state, error: 'Выберите другого живого игрока для разведки.' };
+      const hiddenCats = TRAIT_ORDER.filter((cat) => !target.traits[cat].revealed);
+      if (hiddenCats.length === 0) {
+        return { state, error: 'У выбранного игрока уже все характеристики открыты.' };
+      }
+      const picked = shuffle(hiddenCats)[0];
+      updatedPlayers = updatedPlayers.map((p) =>
+        p.id === target.id
+          ? {
+              ...p,
+              traits: {
+                ...p.traits,
+                [picked]: { ...p.traits[picked], revealed: true },
+              },
+            }
+          : p
+      );
+      logText = `${player.name} («${trait.value}») разведал «${TRAIT_LABELS[picked]}» у ${target.name}: ${target.traits[picked].value}`;
+      break;
+    }
+  }
+
+  return {
+    state: addSystemChat(
+      { ...state, players: updatedPlayers, bunker: updatedBunker },
+      logText
+    ),
+  };
+}
+
+export function hostRerollPlayerTrait(
+  state: GameState,
+  targetPlayerId: string,
+  category: TraitCategory
+): GameState {
+  const target = state.players.find((p) => p.id === targetPlayerId);
+  if (!target) return state;
+
+  const pool = mergePacks(state.settings.packs).traits[category];
+  const currentVal = target.traits[category].value;
+  const candidates = pool.filter((v) => v !== currentVal);
+  const nextVal = shuffle(candidates.length > 0 ? candidates : pool)[0];
+
+  const updatedPlayers = state.players.map((p) =>
+    p.id === targetPlayerId
+      ? {
+          ...p,
+          traits: {
+            ...p.traits,
+            [category]: { ...p.traits[category], value: nextVal },
+          },
+        }
+      : p
+  );
+
+  return addSystemChat(
+    { ...state, players: updatedPlayers },
+    `Хост перероллил слот «${TRAIT_LABELS[category]}» у игрока ${target.name}.`
+  );
+}
+
+export function hostUpdatePlayerTrait(
+  state: GameState,
+  targetPlayerId: string,
+  category: TraitCategory,
+  newValue: string,
+  revealed?: boolean
+): GameState {
+  const target = state.players.find((p) => p.id === targetPlayerId);
+  if (!target) return state;
+
+  const clean = newValue.trim();
+  const updatedPlayers = state.players.map((p) =>
+    p.id === targetPlayerId
+      ? {
+          ...p,
+          traits: {
+            ...p.traits,
+            [category]: {
+              ...p.traits[category],
+              value: clean || p.traits[category].value,
+              revealed: revealed !== undefined ? revealed : p.traits[category].revealed,
+            },
+          },
+        }
+      : p
+  );
+
+  return addSystemChat(
+    { ...state, players: updatedPlayers },
+    `Хост обновил слот «${TRAIT_LABELS[category]}» у игрока ${target.name}.`
+  );
 }
 
 export function addChatMessage(
