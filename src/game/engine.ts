@@ -1,6 +1,13 @@
-import { getTraitAbility } from './abilities';
+import {
+  applyHarmToHealth,
+  applyHealToHealth,
+  getTraitAbility,
+  isHealthyStatus,
+} from './abilities';
 import {
   ALL_PACKS,
+  DISEASE_STAGES,
+  EXPERTISE_LEVELS,
   SPECIAL_CARD_TEMPLATES,
   createSpecialCard,
   mergePacks,
@@ -179,15 +186,56 @@ export function computeKicksSchedule(playerCount: number, capacity: number): num
   return schedule;
 }
 
+function randInt(min: number, max: number): number {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+export function formatRolledTrait(category: TraitCategory, rawValue: string): string {
+  if (category === 'profession') {
+    const level = EXPERTISE_LEVELS[randInt(0, EXPERTISE_LEVELS.length - 1)];
+    return `${rawValue} (${level})`;
+  }
+
+  if (category === 'biology') {
+    const lower = rawValue.toLowerCase();
+    const isFemale = lower.includes('женщина');
+    const isLongLived =
+      lower.includes('эльф') ||
+      lower.includes('гном') ||
+      lower.includes('вампир') ||
+      lower.includes('фея');
+    const age = isLongLived ? randInt(45, 220) : randInt(19, 62);
+    const roll = Math.random();
+    let fertility: string;
+    if (isFemale && roll < 0.06) {
+      fertility = 'беременна';
+    } else if (roll < 0.72) {
+      fertility = isFemale ? 'плодовитая' : 'плодовитый';
+    } else {
+      fertility = isFemale ? 'бесплодна' : 'бесплоден';
+    }
+    return `${rawValue}, ${age} лет (${fertility})`;
+  }
+
+  if (category === 'health' && !isHealthyStatus(rawValue)) {
+    const stage = DISEASE_STAGES[randInt(0, DISEASE_STAGES.length - 1)];
+    return `${rawValue} [${stage}]`;
+  }
+
+  return rawValue;
+}
+
 export function startGame(state: GameState): { state: GameState; error?: string } {
-  if (state.players.length < 2) {
-    return { state, error: 'Для старта нужно минимум 2 игрока (рекомендуется 4–12).' };
+  if (state.players.length < 1) {
+    return { state, error: 'В комнате должен быть хотя бы 1 игрок.' };
   }
 
   const capacity =
-    state.settings.bunkerSeats > 0
-      ? Math.min(state.settings.bunkerSeats, state.players.length - 1)
-      : Math.max(1, Math.floor(state.players.length / 2));
+    state.players.length === 1
+      ? 1
+      : state.settings.bunkerSeats > 0
+        ? Math.min(state.settings.bunkerSeats, state.players.length - 1)
+        : Math.max(1, Math.floor(state.players.length / 2));
 
   const pool = mergePacks(state.settings.packs);
   const kicksPerRound = computeKicksSchedule(state.players.length, capacity);
@@ -210,10 +258,10 @@ export function startGame(state: GameState): { state: GameState; error?: string 
   const players: Player[] = state.players.map((p, idx) => {
     const traits = {} as Record<TraitCategory, TraitCard>;
     for (const cat of TRAIT_ORDER) {
-      const pool = shuffledPools[cat];
+      const poolVals = shuffledPools[cat];
       traits[cat] = {
         category: cat,
-        value: pool[idx % pool.length],
+        value: formatRolledTrait(cat, poolVals[idx % poolVals.length]),
         revealed: false,
       };
     }
@@ -417,6 +465,8 @@ export function startVotingPhase(state: GameState): GameState {
   );
 }
 
+export const SKIP_VOTE_ID = '__skip__';
+
 export function castVote(
   state: GameState,
   voterId: string,
@@ -427,21 +477,24 @@ export function castVote(
   }
 
   const voter = state.players.find((p) => p.id === voterId);
-  const target = state.players.find((p) => p.id === targetPlayerId);
   if (!voter || !voter.alive) {
     return { state, error: 'Вы не можете голосовать.' };
   }
-  if (!target || !target.alive) {
-    return { state, error: 'Нельзя голосовать за выбывшего игрока.' };
-  }
-  if (voterId === targetPlayerId) {
-    return { state, error: 'Нельзя голосовать против себя.' };
-  }
-  if (
-    state.tiedCandidates.length > 0 &&
-    !state.tiedCandidates.includes(targetPlayerId)
-  ) {
-    return { state, error: 'При переголосовании выберите одного из спорных кандидатов.' };
+
+  if (targetPlayerId !== SKIP_VOTE_ID) {
+    const target = state.players.find((p) => p.id === targetPlayerId);
+    if (!target || !target.alive) {
+      return { state, error: 'Нельзя голосовать за выбывшего игрока.' };
+    }
+    if (voterId === targetPlayerId) {
+      return { state, error: 'Нельзя голосовать против себя.' };
+    }
+    if (
+      state.tiedCandidates.length > 0 &&
+      !state.tiedCandidates.includes(targetPlayerId)
+    ) {
+      return { state, error: 'При переголосовании выберите одного из спорных кандидатов.' };
+    }
   }
 
   const nextVotes = { ...state.votes, [voterId]: targetPlayerId };
@@ -470,14 +523,46 @@ export function resolveVotes(state: GameState): GameState {
     }
   }
 
+  let skipVotes = 0;
   for (const [voterId, targetId] of Object.entries(state.votes)) {
     const voter = state.players.find((p) => p.id === voterId);
+    if (!voter) continue;
+    if (targetId === SKIP_VOTE_ID) {
+      skipVotes += voter.voteWeight;
+      continue;
+    }
     const target = state.players.find((p) => p.id === targetId);
-    if (!voter || !target || target.hasImmunity || !tally.has(targetId)) continue;
+    if (!target || target.hasImmunity || !tally.has(targetId)) continue;
     tally.set(targetId, (tally.get(targetId) ?? 0) + voter.voteWeight);
   }
 
   const sorted = [...tally.entries()].sort((a, b) => b[1] - a[1]);
+  const topCandidateScore = sorted[0]?.[1] ?? 0;
+  if (skipVotes > 0 && skipVotes >= topCandidateScore) {
+    const resetPlayers = state.players.map((p) => ({
+      ...p,
+      hasImmunity: false,
+      voteWeight: 1,
+    }));
+    return addSystemChat(
+      {
+        ...state,
+        phase: 'round_result',
+        players: resetPlayers,
+        votes: {},
+        tiedCandidates: [],
+        phaseEndsAt: null,
+        lastRoundResult: {
+          round: state.round,
+          exiledIds: [],
+          exiledNames: [],
+          wasTie: false,
+          reason: 'Большинство воздержалось — в этом раунде никто не изгнан.',
+        },
+      },
+      'Голосование пропущено — в этом раунде все остаются в бункере.'
+    );
+  }
   if (sorted.length === 0) {
     return {
       ...state,
@@ -675,7 +760,7 @@ export function useSpecialCard(
 
     case 'reroll_profession': {
       const pool = mergePacks(state.settings.packs);
-      const newProf = shuffle(pool.traits.profession)[0];
+      const newProf = formatRolledTrait('profession', shuffle(pool.traits.profession)[0]);
       updatedPlayers = updatedPlayers.map((p) =>
         p.id === playerId
           ? { ...p, traits: { ...p.traits, profession: { ...p.traits.profession, value: newProf } } }
@@ -810,6 +895,10 @@ export function useTraitAbility(
     case 'heal': {
       const target = updatedPlayers.find((p) => p.id === targetPlayerId && p.alive);
       if (!target) return { state, error: 'Выберите живого игрока для лечения.' };
+      const healedHealth = applyHealToHealth(target.traits.health.value);
+      if (!healedHealth) {
+        return { state, error: `${target.name} уже полностью здоров — лечение не требуется.` };
+      }
       updatedPlayers = updatedPlayers.map((p) =>
         p.id === target.id
           ? {
@@ -818,13 +907,13 @@ export function useTraitAbility(
                 ...p.traits,
                 health: {
                   ...p.traits.health,
-                  value: 'Подлечен (стабильное состояние)',
+                  value: healedHealth,
                 },
               },
             }
           : p
       );
-      logText = `${player.name} («${trait.value}») подлечил игрока ${target.name}!`;
+      logText = `${player.name} («${trait.value}») подлечил игрока ${target.name} -> ${healedHealth}!`;
       break;
     }
 
@@ -833,10 +922,7 @@ export function useTraitAbility(
         (p) => p.id === targetPlayerId && p.id !== playerId && p.alive
       );
       if (!target) return { state, error: 'Выберите другого живого игрока.' };
-      const prevHealth = target.traits.health.value;
-      const nextHealth = prevHealth.includes('Ранение')
-        ? prevHealth
-        : `${prevHealth} + Ранение (после стычки)`;
+      const nextHealth = applyHarmToHealth(target.traits.health.value);
       updatedPlayers = updatedPlayers.map((p) =>
         p.id === target.id
           ? {
@@ -848,7 +934,7 @@ export function useTraitAbility(
             }
           : p
       );
-      logText = `${player.name} применил «${trait.value}» против ${target.name} — здоровье ухудшилось!`;
+      logText = `${player.name} применил «${trait.value}» против ${target.name} -> ${nextHealth}!`;
       break;
     }
 
@@ -915,7 +1001,8 @@ export function hostRerollPlayerTrait(
   const pool = mergePacks(state.settings.packs).traits[category];
   const currentVal = target.traits[category].value;
   const candidates = pool.filter((v) => v !== currentVal);
-  const nextVal = shuffle(candidates.length > 0 ? candidates : pool)[0];
+  const pickedRaw = shuffle(candidates.length > 0 ? candidates : pool)[0];
+  const nextVal = formatRolledTrait(category, pickedRaw);
 
   const updatedPlayers = state.players.map((p) =>
     p.id === targetPlayerId

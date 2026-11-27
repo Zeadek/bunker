@@ -20,6 +20,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { getTraitAbility } from '../game/abilities';
+import { SKIP_VOTE_ID } from '../game/engine';
 import {
   GamePhase,
   Player,
@@ -278,9 +279,23 @@ export const GameScreen: React.FC<GameScreenProps> = ({
           Игроки ({view.players.filter((p) => p.alive).length} в игре / {view.bunker?.capacity ?? '?'} мест)
         </div>
         {view.phase === 'voting' && (
-          <span className="badge badge-amber">
-            Проголосовало: {view.votedPlayerIds.length}/{view.players.filter((p) => p.alive).length}
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span className="badge badge-amber">
+              Проголосовало: {view.votedPlayerIds.length}/{view.players.filter((p) => p.alive).length}
+            </span>
+            {me?.alive && !view.myVote && (
+              <button
+                className="btn btn-outline"
+                style={{ padding: '4px 10px', fontSize: 12 }}
+                onClick={() => onCastVote(SKIP_VOTE_ID)}
+              >
+                Воздержаться
+              </button>
+            )}
+            {view.myVote === SKIP_VOTE_ID && (
+              <span className="badge">Вы воздержались</span>
+            )}
+          </div>
         )}
       </div>
 

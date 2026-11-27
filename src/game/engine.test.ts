@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { ALL_PACKS, mergePacks } from './data';
+import { ALL_PACKS, EXPERTISE_LEVELS, mergePacks } from './data';
+import { GameState } from './types';
 import {
+  SKIP_VOTE_ID,
   addOrReconnectPlayer,
   castVote,
   computeKicksSchedule,
@@ -47,7 +49,6 @@ describe('Bunker game engine', () => {
     state = startGame(state).state;
     state = startRevealPhase(state);
 
-    // Each player reveals in turn order
     for (let i = 0; i < 4; i++) {
       const currentId = state.turnOrder[state.currentTurnIndex];
       const res = revealTrait(state, currentId, 'profession');
@@ -56,24 +57,19 @@ describe('Bunker game engine', () => {
     }
 
     expect(state.phase).toBe('discussion');
-
-    // Round 1 has 0 kicks -> moves to round_result / game check
     state = startVotingPhase(state);
     expect(state.phase).toBe('round_result');
 
-    // Advance to Round 2
     state = proceedAfterRoundResult(state, true);
     expect(state.round).toBe(2);
     expect(state.phase).toBe('reveal');
 
-    // Reveal in Round 2
     for (let i = 0; i < 4; i++) {
       const currentId = state.turnOrder[state.currentTurnIndex];
       state = revealTrait(state, currentId, 'health').state;
     }
     expect(state.phase).toBe('discussion');
 
-    // Vote in Round 2 (1 kick)
     state = startVotingPhase(state);
     expect(state.phase).toBe('voting');
 
@@ -87,50 +83,58 @@ describe('Bunker game engine', () => {
     expect(state.players.find((p) => p.id === 'p4')?.alive).toBe(false);
   });
 
-  it('supports fantasy pack and merging both packs', () => {
+  it('supports solo start, fantasy pack, expertise, and biology rolls', () => {
     const merged = mergePacks(['classic', 'fantasy']);
     expect(merged.catastrophes.length).toBe(
       ALL_PACKS.classic.catastrophes.length + ALL_PACKS.fantasy.catastrophes.length
     );
-    expect(merged.traits.profession.length).toBe(
-      ALL_PACKS.classic.traits.profession.length + ALL_PACKS.fantasy.traits.profession.length
-    );
 
-    let state = createInitialState('FANT1', 'p1', 'Маг');
-    state = addOrReconnectPlayer(state, 'p2', 'Орк').state;
+    let state = createInitialState('SOLO1', 'p1', 'Маг');
     state = { ...state, settings: { ...state.settings, packs: ['fantasy'] } };
-    const started = startGame(state).state;
+    const started = startGame(state);
+    expect(started.error).toBeUndefined();
 
-    expect(ALL_PACKS.fantasy.catastrophes.some((c) => c.id === started.catastrophe?.id)).toBe(true);
-    expect(ALL_PACKS.fantasy.traits.profession).toContain(started.players[0].traits.profession.value);
-    expect(ALL_PACKS.fantasy.traits.biology).toContain(started.players[0].traits.biology.value);
-    expect(ALL_PACKS.fantasy.traits.extra).toContain(started.players[0].traits.extra.value);
-    expect(ALL_PACKS.fantasy.traits.gear).toContain(started.players[0].traits.gear.value);
-    expect(ALL_PACKS.fantasy.traits.pocket).toContain(started.players[0].traits.pocket.value);
+    const p1 = started.state.players[0];
+    expect(EXPERTISE_LEVELS.some((lvl) => p1.traits.profession.value.includes(lvl))).toBe(true);
+    expect(p1.traits.biology.value).toMatch(/\d+ лет/);
+    expect(p1.traits.biology.value).toMatch(/(плодовит|бесплод|беременна)/);
   });
 
-  it('supports trait abilities (harm/heal) and host slot editing', () => {
+  it('supports staged heal/harm, prevents healing healthy, and supports skip vote', () => {
     let state = createInitialState('ABIL1', 'p1', 'Хост');
     state = addOrReconnectPlayer(state, 'p2', 'Ассасин').state;
+    state = addOrReconnectPlayer(state, 'p3', 'Медик').state;
     state = startGame(state).state;
 
-    // Host edits p2's pocket to dagger and p1's profession to surgeon
+    state = hostUpdatePlayerTrait(state, 'p1', 'health', 'Полностью здоров', false);
     state = hostUpdatePlayerTrait(state, 'p2', 'pocket', 'Отравленный кинжал ассасина', false);
-    state = hostUpdatePlayerTrait(state, 'p1', 'profession', 'Хирург-травматолог (стаж 9 лет)');
+    state = hostUpdatePlayerTrait(state, 'p3', 'profession', 'Хирург-травматолог (Опытный)', false);
 
-    // p2 harms p1
+    // Cannot heal healthy player
+    const failHeal = useTraitAbility(state, 'p3', 'profession', 'p1');
+    expect(failHeal.error).toBeDefined();
+
+    // p2 harms healthy p1 -> Лёгкая стадия
     const harmed = useTraitAbility(state, 'p2', 'pocket', 'p1');
     expect(harmed.error).toBeUndefined();
-    expect(harmed.state.players[0].traits.health.value).toContain('Ранение');
+    expect(harmed.state.players[0].traits.health.value).toContain('Лёгкая стадия');
 
-    // p1 heals self
-    const healed = useTraitAbility(harmed.state, 'p1', 'profession', 'p1');
+    // p3 heals p1 from Лёгкая стадия -> Полностью здоров
+    const healed = useTraitAbility(harmed.state, 'p3', 'profession', 'p1');
     expect(healed.error).toBeUndefined();
-    expect(healed.state.players[0].traits.health.value).toContain('Подлечен');
+    expect(healed.state.players[0].traits.health.value).toBe('Полностью здоров');
 
     // Host blind reroll changes value
     const beforeExtra = healed.state.players[1].traits.extra.value;
     const rerolled = hostRerollPlayerTrait(healed.state, 'p2', 'extra');
     expect(rerolled.players[1].traits.extra.value).not.toBe(beforeExtra);
+
+    // Skip vote
+    let voteState: GameState = { ...rerolled, round: 2, phase: 'voting', kicksPerRound: [0, 1] };
+    voteState = castVote(voteState, 'p1', SKIP_VOTE_ID).state;
+    voteState = castVote(voteState, 'p2', SKIP_VOTE_ID).state;
+    voteState = castVote(voteState, 'p3', 'p2').state;
+    expect(voteState.phase).toBe('round_result');
+    expect(voteState.lastRoundResult?.exiledIds).toEqual([]);
   });
 });

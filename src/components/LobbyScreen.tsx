@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Check, Copy, Eye, Layers, LogOut, Play, Users, X } from 'lucide-react';
+import { getAbilityShortBadge } from '../game/abilities';
 import { ALL_PACKS } from '../game/data';
 import { GamePack, GameSettings, PackId, PlayerView, TRAIT_LABELS, TRAIT_ORDER } from '../game/types';
 
@@ -19,6 +20,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   onLeave,
 }) => {
   const [copied, setCopied] = useState(false);
+  const [showPackModal, setShowPackModal] = useState(false);
   const [inspectPack, setInspectPack] = useState<GamePack | null>(null);
   const [inspectTab, setInspectTab] = useState<string>('profession');
 
@@ -29,7 +31,6 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      // Fallback: copy just the code
       await navigator.clipboard.writeText(view.roomCode).catch(() => {});
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
@@ -41,7 +42,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   const togglePack = (packId: PackId) => {
     const current = view.settings.packs;
     const exists = current.includes(packId);
-    if (exists && current.length <= 1) return; // keep at least 1 pack
+    if (exists && current.length <= 1) return;
     const nextPacks = exists ? current.filter((id) => id !== packId) : [...current, packId];
     onUpdateSettings({ ...view.settings, packs: nextPacks });
   };
@@ -93,64 +94,35 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
           </div>
         </div>
 
-        {isHost && (
-          <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {/* Compact Pack Summary Card */}
+        <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
               <Layers size={18} color="var(--amber)" />
-              Наборы карточек (Паки)
+              Наборы карточек
             </div>
-            <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-              Выберите один набор или оба сразу — тогда карты, катастрофы и бункеры затасуются вместе.
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
-              {packList.map((pack) => {
-                const selected = view.settings.packs.includes(pack.id);
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {view.settings.packs.map((id) => {
+                const pack = ALL_PACKS[id];
+                if (!pack) return null;
                 return (
-                  <button
-                    key={pack.id}
-                    type="button"
-                    className="card-subtle"
-                    onClick={() => togglePack(pack.id)}
-                    style={{
-                      textAlign: 'left',
-                      cursor: 'pointer',
-                      borderColor: selected ? 'var(--amber)' : 'var(--border)',
-                      background: selected ? 'var(--amber-dim)' : 'var(--surface-2)',
-                      color: 'var(--text)',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 4,
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                      <strong style={{ fontSize: 14 }}>{pack.name}</strong>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span
-                          role="button"
-                          tabIndex={0}
-                          className="badge"
-                          title="Посмотреть состав пака"
-                          style={{ cursor: 'pointer' }}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setInspectTab('profession');
-                            setInspectPack(pack);
-                          }}
-                        >
-                          <Eye size={12} /> Состав
-                        </span>
-                        <span className={`badge ${selected ? 'badge-amber' : ''}`}>
-                          {selected ? 'Выбран' : 'Выкл'}
-                        </span>
-                      </div>
-                    </div>
-                    <span style={{ fontSize: 12, color: 'var(--muted)' }}>{pack.description}</span>
-                  </button>
+                  <span key={id} className="badge badge-amber">
+                    {pack.name}
+                  </span>
                 );
               })}
             </div>
+          </div>
 
-            <div style={{ fontWeight: 700, marginTop: 4 }}>Настройки партии</div>
+          <button className="btn btn-outline" onClick={() => setShowPackModal(true)}>
+            <Layers size={16} />
+            {isHost ? 'Выбрать / Состав' : 'Посмотреть состав'}
+          </button>
+        </div>
+
+        {isHost && (
+          <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ fontWeight: 700 }}>Настройки партии</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12 }}>
               <div>
                 <label style={{ fontSize: 12, color: 'var(--muted)' }}>
@@ -207,55 +179,32 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             <button
               className="btn btn-primary"
               style={{ width: '100%', padding: '13px 16px', fontSize: 15, marginTop: 4 }}
-              disabled={view.players.length < 2}
+              disabled={view.players.length < 1}
               onClick={onStartGame}
             >
               <Play size={18} />
-              Начать игру ({view.players.length} игр.)
+              {view.players.length === 1
+                ? 'Начать игру (Соло-тест)'
+                : `Начать игру (${view.players.length} игр.)`}
             </button>
-            {view.players.length < 2 && (
-              <div style={{ fontSize: 12, color: 'var(--muted)', textAlign: 'center' }}>
-                Ожидайте подключения минимум 2 игроков (рекомендуется 4–12).
-              </div>
-            )}
           </div>
         )}
 
         {!isHost && (
-          <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center', textAlign: 'center', color: 'var(--muted)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
-              <span>Выбранные наборы:</span>
-              {view.settings.packs.map((id) => {
-                const pack = ALL_PACKS[id];
-                if (!pack) return null;
-                return (
-                  <button
-                    key={id}
-                    type="button"
-                    className="badge badge-amber"
-                    style={{ cursor: 'pointer' }}
-                    onClick={() => {
-                      setInspectTab('profession');
-                      setInspectPack(pack);
-                    }}
-                  >
-                    <Eye size={12} /> {pack.name}
-                  </button>
-                );
-              })}
-            </div>
-            <div>Ожидаем, пока хост запустит игру…</div>
+          <div className="card" style={{ textAlign: 'center', color: 'var(--muted)' }}>
+            Ожидаем, пока хост запустит игру…
           </div>
         )}
       </div>
 
-      {inspectPack && (
-        <div className="modal-backdrop" onClick={() => setInspectPack(null)}>
+      {/* Pack Selection Modal */}
+      {showPackModal && (
+        <div className="modal-backdrop" onClick={() => setShowPackModal(false)}>
           <div
             className="card"
             style={{
               width: '100%',
-              maxWidth: 680,
+              maxWidth: 560,
               maxHeight: '85dvh',
               display: 'flex',
               flexDirection: 'column',
@@ -265,7 +214,86 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
-                <h3 style={{ margin: 0 }}>Состав пака: {inspectPack.name}</h3>
+                <h3 style={{ margin: 0 }}>Наборы карточек (Паки)</h3>
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                  {isHost
+                    ? 'Можно выбрать один пак или несколько — они затасуются вместе.'
+                    : 'Активные наборы текущей партии.'}
+                </div>
+              </div>
+              <button className="btn btn-outline" style={{ padding: 6 }} onClick={() => setShowPackModal(false)}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {packList.map((pack) => {
+                const selected = view.settings.packs.includes(pack.id);
+                return (
+                  <div
+                    key={pack.id}
+                    className="card-subtle"
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 8,
+                      borderColor: selected ? 'var(--amber)' : 'var(--border)',
+                      background: selected ? 'var(--amber-dim)' : 'var(--surface-2)',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                      <strong style={{ fontSize: 15 }}>{pack.name}</strong>
+                      <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                        <button
+                          type="button"
+                          className="btn btn-outline"
+                          style={{ padding: '5px 10px', fontSize: 12 }}
+                          onClick={() => {
+                            setInspectTab('profession');
+                            setInspectPack(pack);
+                          }}
+                        >
+                          <Eye size={13} /> Состав
+                        </button>
+                        {isHost && (
+                          <button
+                            type="button"
+                            className={`btn ${selected ? 'btn-primary' : 'btn-outline'}`}
+                            style={{ padding: '5px 12px', fontSize: 12 }}
+                            onClick={() => togglePack(pack.id)}
+                          >
+                            {selected ? 'Включён' : 'Выбрать'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>{pack.description}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Pack Inspector Modal */}
+      {inspectPack && (
+        <div className="modal-backdrop" onClick={() => setInspectPack(null)}>
+          <div
+            className="card"
+            style={{
+              width: '100%',
+              maxWidth: 700,
+              maxHeight: '85dvh',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h3 style={{ margin: 0 }}>Состав: {inspectPack.name}</h3>
                 <div style={{ fontSize: 12, color: 'var(--muted)' }}>{inspectPack.description}</div>
               </div>
               <button className="btn btn-outline" style={{ padding: 6 }} onClick={() => setInspectPack(null)}>
@@ -286,7 +314,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                 style={{ cursor: 'pointer' }}
                 onClick={() => setInspectTab('bunker')}
               >
-                Бункеры и угрозы ({inspectPack.bunkerFeatures.length})
+                Бункеры ({inspectPack.bunkerFeatures.length})
               </button>
               {TRAIT_ORDER.map((cat) => (
                 <button
@@ -335,11 +363,31 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                 ))}
 
               {TRAIT_ORDER.includes(inspectTab as typeof TRAIT_ORDER[number]) &&
-                inspectPack.traits[inspectTab as typeof TRAIT_ORDER[number]].map((item, i) => (
-                  <div key={i} className="card-subtle" style={{ fontSize: 13, padding: '8px 12px' }}>
-                    {i + 1}. {item}
-                  </div>
-                ))}
+                inspectPack.traits[inspectTab as typeof TRAIT_ORDER[number]].map((item, i) => {
+                  const cat = inspectTab as typeof TRAIT_ORDER[number];
+                  const abilityBadge = getAbilityShortBadge(cat, item);
+                  return (
+                    <div
+                      key={i}
+                      className="card-subtle"
+                      style={{
+                        fontSize: 13,
+                        padding: '8px 12px',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        gap: 8,
+                      }}
+                    >
+                      <span>{i + 1}. {item}</span>
+                      {abilityBadge && (
+                        <span className="badge badge-amber" style={{ flexShrink: 0 }}>
+                          {abilityBadge}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
             </div>
           </div>
         </div>

@@ -5,6 +5,7 @@ const HEAL_KEYWORDS = [
   'ветеринар',
   'фармацевт',
   'стоматолог',
+  'реаниматолог',
   'жрец',
   'паладин',
   'алхимик',
@@ -24,10 +25,14 @@ const HARM_KEYWORDS = [
   'топор',
   'лом и кувалд',
   'ядом василиска',
+  'метательные ножи',
+  'арбалет',
   'вор-тень',
+  'ассасин',
   'варвар',
   'ведьмак',
   'разведчик',
+  'телохранитель',
 ];
 
 const REPAIR_KEYWORDS = [
@@ -36,6 +41,7 @@ const REPAIR_KEYWORDS = [
   'электрик',
   'сантехник',
   'строитель',
+  'слесарь',
   'кузнец',
   'артефактор',
   'мастер рун',
@@ -48,8 +54,10 @@ const SCOUT_KEYWORDS = [
   'ворон',
   'ночного видения',
   'компас',
+  'дрон',
   'следопыт',
   'программист',
+  'криминалист',
   'чародей',
   'плащ-невидимка',
 ];
@@ -68,7 +76,7 @@ export function getTraitAbility(
     return {
       kind: 'heal',
       title: 'Вылечить игрока',
-      description: 'Улучшает состояние здоровья выбранного игрока (1 раз за игру).',
+      description: 'Снижает стадию болезни/ранения на 1 шаг (1 раз за игру).',
       needsTargetPlayer: true,
     };
   }
@@ -77,7 +85,7 @@ export function getTraitAbility(
     return {
       kind: 'harm',
       title: 'Ранить игрока',
-      description: 'Ухудшает здоровье выбранного игрока из-за стычки (1 раз за игру).',
+      description: 'Наносит ранение или усиливает стадию недуга на 1 шаг (1 раз за игру).',
       needsTargetPlayer: true,
     };
   }
@@ -101,4 +109,59 @@ export function getTraitAbility(
   }
 
   return null;
+}
+
+export function getAbilityShortBadge(category: TraitCategory, value: string): string | null {
+  const info = getTraitAbility(category, value);
+  if (!info) return null;
+  switch (info.kind) {
+    case 'heal':
+      return '⚡ Лечение';
+    case 'harm':
+      return '⚡ Атака';
+    case 'repair_bunker':
+      return '⚡ Ремонт';
+    case 'scout':
+      return '⚡ Разведка';
+  }
+}
+
+export function isHealthyStatus(health: string): boolean {
+  const lower = health.toLowerCase();
+  return lower.includes('полностью здоров') || lower.includes('абсолютно здоров');
+}
+
+export function applyHealToHealth(health: string): string | null {
+  if (isHealthyStatus(health)) {
+    return null; // Cannot heal a healthy person
+  }
+  if (health.includes('Тяжёлая стадия')) {
+    return health.replace('Тяжёлая стадия', 'Средняя стадия');
+  }
+  if (health.includes('Средняя стадия')) {
+    return health.replace('Средняя стадия', 'Лёгкая стадия');
+  }
+  if (health.includes('Лёгкая стадия')) {
+    return 'Полностью здоров';
+  }
+  // If no explicit stage tag, cure to healthy
+  return 'Полностью здоров';
+}
+
+export function applyHarmToHealth(health: string): string {
+  if (isHealthyStatus(health)) {
+    return 'Ранение после стычки [Лёгкая стадия]';
+  }
+  if (health.includes('Лёгкая стадия')) {
+    return health.replace('Лёгкая стадия', 'Средняя стадия');
+  }
+  if (health.includes('Средняя стадия')) {
+    return health.replace('Средняя стадия', 'Тяжёлая стадия');
+  }
+  if (health.includes('Тяжёлая стадия')) {
+    return health.includes('Критическое')
+      ? health
+      : `${health} (Критическое состояние)`;
+  }
+  return `${health} [Средняя стадия]`;
 }
