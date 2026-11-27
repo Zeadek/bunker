@@ -9,7 +9,9 @@ import {
   createInitialState,
   disconnectPlayer,
   getPlayerView,
+  hostRerollBonusTrait,
   hostRerollPlayerTrait,
+  hostUpdateBonusTrait,
   hostUpdatePlayerTrait,
   proceedAfterRoundResult,
   resolveVotes,
@@ -358,6 +360,18 @@ export function App() {
         if (hostStateRef.current) {
           syncAllViews(
             hostUpdatePlayerTrait(hostStateRef.current, targetId, category, value, revealed)
+          );
+        }
+      }}
+      onHostRerollBonusTrait={(targetId, bonusId) => {
+        if (hostStateRef.current) {
+          syncAllViews(hostRerollBonusTrait(hostStateRef.current, targetId, bonusId));
+        }
+      }}
+      onHostUpdateBonusTrait={(targetId, bonusId, value, revealed) => {
+        if (hostStateRef.current) {
+          syncAllViews(
+            hostUpdateBonusTrait(hostStateRef.current, targetId, bonusId, value, revealed)
           );
         }
       }}

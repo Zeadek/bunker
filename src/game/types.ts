@@ -223,12 +223,32 @@ export interface ChatMessage {
   isSystem?: boolean;
 }
 
+export interface VoteDetail {
+  voterId: string;
+  voterName: string;
+  targetId: string;
+  targetName: string;
+  weight: number;
+}
+
 export interface RoundResult {
   round: number;
   exiledIds: string[];
   exiledNames: string[];
   wasTie: boolean;
   reason: string;
+  voteDetails?: VoteDetail[];
+}
+
+export type SurvivalVerdictStatus = 'survived' | 'losses' | 'fallen';
+
+export interface SurvivalEvaluation {
+  status: SurvivalVerdictStatus;
+  title: string;
+  score: number;
+  resolvedThreats: string[];
+  unresolvedIssues: string[];
+  summary: string;
 }
 
 export interface GameState {

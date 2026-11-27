@@ -20,10 +20,12 @@ import {
   Player,
   PlayerView,
   PublicPlayer,
+  SurvivalEvaluation,
   TRAIT_LABELS,
   TRAIT_ORDER,
   TraitCard,
   TraitCategory,
+  VoteDetail,
 } from './types';
 
 function shuffle<T>(arr: readonly T[]): T[] {
@@ -602,16 +604,32 @@ export function resolveVotes(state: GameState): GameState {
   }
 
   let skipVotes = 0;
+  const voteDetails: VoteDetail[] = [];
   for (const [voterId, targetId] of Object.entries(state.votes)) {
     const voter = state.players.find((p) => p.id === voterId);
     if (!voter) continue;
+    const weight = Math.max(0, voter.voteWeight);
     if (targetId === SKIP_VOTE_ID) {
-      skipVotes += voter.voteWeight;
+      skipVotes += weight;
+      voteDetails.push({
+        voterId: voter.id,
+        voterName: voter.name,
+        targetId,
+        targetName: 'Воздержался',
+        weight,
+      });
       continue;
     }
     const target = state.players.find((p) => p.id === targetId);
+    voteDetails.push({
+      voterId: voter.id,
+      voterName: voter.name,
+      targetId,
+      targetName: target?.name ?? 'Игрок',
+      weight,
+    });
     if (!target || target.hasImmunity || !tally.has(targetId)) continue;
-    tally.set(targetId, (tally.get(targetId) ?? 0) + voter.voteWeight);
+    tally.set(targetId, (tally.get(targetId) ?? 0) + weight);
   }
 
   const sorted = [...tally.entries()].sort((a, b) => b[1] - a[1]);
@@ -636,6 +654,7 @@ export function resolveVotes(state: GameState): GameState {
           exiledNames: [],
           wasTie: false,
           reason: 'Большинство воздержалось — в этом раунде никто не изгнан.',
+          voteDetails,
         },
       },
       'Голосование пропущено — в этом раунде все остаются в бункере.'
@@ -651,6 +670,7 @@ export function resolveVotes(state: GameState): GameState {
         exiledNames: [],
         wasTie: false,
         reason: 'Никто не может быть изгнан (действует неприкосновенность).',
+        voteDetails,
       },
     };
   }
@@ -708,6 +728,7 @@ export function resolveVotes(state: GameState): GameState {
         exiledNames,
         wasTie: false,
         reason: `По итогам голосования бункер покидает: ${exiledNames.join(', ')}.`,
+        voteDetails,
       },
     },
     `Изгнаны из бункера: ${exiledNames.join(', ')}.`
@@ -1663,6 +1684,78 @@ export function hostUpdatePlayerTrait(
   );
 }
 
+export function hostRerollBonusTrait(
+  state: GameState,
+  targetPlayerId: string,
+  bonusId: string
+): GameState {
+  const target = state.players.find((p) => p.id === targetPlayerId);
+  if (!target) return state;
+  const bonus = target.bonusTraits.find((b) => b.id === bonusId);
+  if (!bonus) return state;
+
+  const customDef = state.settings.customFields.find((cf) => cf.label === bonus.label);
+  const packPool = mergePacks(state.settings.packs, state.settings.enableAdultContent);
+  const pool =
+    customDef && customDef.pool.length > 0
+      ? customDef.pool
+      : [...packPool.traits.fact, ...packPool.traits.pocket];
+  const candidates = pool.filter((v) => v !== bonus.value);
+  const nextVal = shuffle(candidates.length > 0 ? candidates : pool)[0] ?? bonus.value;
+
+  const updatedPlayers = state.players.map((p) =>
+    p.id === targetPlayerId
+      ? {
+          ...p,
+          bonusTraits: p.bonusTraits.map((b) =>
+            b.id === bonusId ? { ...b, value: nextVal } : b
+          ),
+        }
+      : p
+  );
+
+  return addSystemChat(
+    { ...state, players: updatedPlayers },
+    `Хост перероллил доп. поле «${bonus.label}» у игрока ${target.name}.`
+  );
+}
+
+export function hostUpdateBonusTrait(
+  state: GameState,
+  targetPlayerId: string,
+  bonusId: string,
+  newValue: string,
+  revealed?: boolean
+): GameState {
+  const target = state.players.find((p) => p.id === targetPlayerId);
+  if (!target) return state;
+  const bonus = target.bonusTraits.find((b) => b.id === bonusId);
+  if (!bonus) return state;
+
+  const clean = newValue.trim();
+  const updatedPlayers = state.players.map((p) =>
+    p.id === targetPlayerId
+      ? {
+          ...p,
+          bonusTraits: p.bonusTraits.map((b) =>
+            b.id === bonusId
+              ? {
+                  ...b,
+                  value: clean || b.value,
+                  revealed: revealed !== undefined ? revealed : b.revealed,
+                }
+              : b
+          ),
+        }
+      : p
+  );
+
+  return addSystemChat(
+    { ...state, players: updatedPlayers },
+    `Хост обновил доп. поле «${bonus.label}» у игрока ${target.name}.`
+  );
+}
+
 export function addChatMessage(
   state: GameState,
   senderId: string,
@@ -1761,5 +1854,183 @@ export function getPlayerView(state: GameState, viewerId: string): PlayerView {
     tiedCandidates: state.tiedCandidates,
     lastRoundResult: state.lastRoundResult,
     chat: state.chat,
+  };
+}
+
+export function evaluateBunkerSurvival(
+  view: Pick<PlayerView, 'catastrophe' | 'bunker' | 'players'>
+): SurvivalEvaluation {
+  const survivors = view.players.filter((p) => p.alive);
+  if (survivors.length === 0) {
+    return {
+      status: 'fallen',
+      title: 'Бункер пал',
+      score: 0,
+      resolvedThreats: [],
+      unresolvedIssues: ['В бункере не осталось ни одного выжившего.'],
+      summary: 'Никто не попал в убежище — поддерживать системы жизнеобеспечения некому.',
+    };
+  }
+
+  const allTraitTexts: string[] = [];
+  const abilityKinds = new Set<string>();
+
+  for (const p of survivors) {
+    for (const cat of TRAIT_ORDER) {
+      const val = p.revealedTraits[cat];
+      if (!val) continue;
+      allTraitTexts.push(val.toLowerCase());
+      const ab = getTraitAbility(cat, val);
+      if (ab) abilityKinds.add(ab.kind);
+    }
+    for (const bt of p.revealedBonusTraits) {
+      allTraitTexts.push(bt.value.toLowerCase());
+    }
+  }
+
+  const bunkerText = (view.bunker?.cards ?? [])
+    .filter((c) => !c.isThreat)
+    .map((c) => `${c.title} ${c.description}`.toLowerCase())
+    .join(' ');
+  const combinedText = `${allTraitTexts.join(' ')} ${bunkerText} ${(view.bunker?.supplies ?? '').toLowerCase()}`;
+
+  const hasMedical =
+    abilityKinds.has('heal') ||
+    ['хирург', 'врач', 'фельдшер', 'реаниматолог', 'медотсек', 'аптечк', 'алхимич'].some((kw) =>
+      combinedText.includes(kw)
+    );
+  const hasTech =
+    abilityKinds.has('repair_bunker') ||
+    ['инженер', 'механик', 'электрик', 'сантехник', 'строитель', 'кузнец', 'артефактор', 'мастерская'].some(
+      (kw) => combinedText.includes(kw)
+    );
+  const hasCombat =
+    abilityKinds.has('harm') ||
+    ['винтовк', 'арбалет', 'оружей', 'паладин', 'ведьмак', 'разведчик', 'телохранитель', 'топор'].some(
+      (kw) => combinedText.includes(kw)
+    );
+  const hasFoodSupport = [
+    'агроном',
+    'повар',
+    'трактирщик',
+    'гидропон',
+    'ферм',
+    'грибниц',
+    'семян',
+    'охот',
+  ].some((kw) => combinedText.includes(kw));
+
+  const resolvedThreats: string[] = [];
+  const unresolvedIssues: string[] = [];
+
+  for (const card of view.bunker?.cards ?? []) {
+    if (card.title.startsWith('Устранено:')) {
+      resolvedThreats.push(card.title.replace(/^Устранено:\s*/, ''));
+      continue;
+    }
+    if (card.isThreat) {
+      const lowerThreat = `${card.title} ${card.description}`.toLowerCase();
+      const isPestOrCreature = ['крыс', 'паук', 'пёс', 'тварь', 'голем', 'инкуб', 'мимик'].some((kw) =>
+        lowerThreat.includes(kw)
+      );
+      const isMedicalThreat = ['плесень', 'спор', 'зараж', 'формалин', 'метанол', 'труп'].some((kw) =>
+        lowerThreat.includes(kw)
+      );
+      const countered =
+        (isPestOrCreature && (hasCombat || combinedText.includes('дезинсектор'))) ||
+        (isMedicalThreat && (hasMedical || combinedText.includes('химлаборатор'))) ||
+        hasTech;
+
+      if (countered) {
+        resolvedThreats.push(`${card.title} — нейтрализовано силами команды`);
+      } else {
+        unresolvedIssues.push(`Не устранена угроза бункера: «${card.title}»`);
+      }
+    } else {
+      resolvedThreats.push(`Ресурс бункера: ${card.title}`);
+    }
+  }
+
+  const severeSickCount = survivors.filter((p) => {
+    const h = p.revealedTraits.health ?? '';
+    return h.includes('Тяжёлая стадия') || h.includes('Критическое');
+  }).length;
+  if (severeSickCount > 0 && !hasMedical) {
+    unresolvedIssues.push(`Тяжёлые недуги (${severeSickCount} чел.) без квалифицированной медпомощи`);
+  } else if (hasMedical) {
+    resolvedThreats.push('Медицинское обеспечение команды в норме');
+  }
+
+  if (survivors.length >= 2) {
+    const hasFertile = survivors.some((p) => {
+      const bio = (p.revealedTraits.biology ?? '').toLowerCase();
+      return bio.includes('плодовит') || bio.includes('беременна');
+    });
+    if (!hasFertile) {
+      unresolvedIssues.push('Среди выживших нет фертильных участников для продолжения рода');
+    }
+  }
+
+  if (view.catastrophe) {
+    const catLower = `${view.catastrophe.title} ${view.catastrophe.description}`.toLowerCase();
+    const isBioCat = ['спор', 'чум', 'вирус', 'эпидем', 'патоген', 'грибк'].some((kw) =>
+      catLower.includes(kw)
+    );
+    const isTechCat = ['ядерн', 'радиац', 'вспышк', 'озон', 'нанобот', 'ии', 'генератор', 'вулкан'].some(
+      (kw) => catLower.includes(kw)
+    );
+    const isCombatCat = ['орк', 'нежит', 'дракон', 'демон', 'зомби', 'бешеного', 'маньяк', 'титан'].some(
+      (kw) => catLower.includes(kw)
+    );
+    const catCountered =
+      (isBioCat && hasMedical) ||
+      (isTechCat && (hasTech || combinedText.includes('физик') || combinedText.includes('противогаз'))) ||
+      (isCombatCat && hasCombat) ||
+      (!isBioCat && !isTechCat && !isCombatCat && (hasTech || hasFoodSupport));
+
+    if (catCountered) {
+      resolvedThreats.push(`Команда готова к условиям катастрофы «${view.catastrophe.title}»`);
+    } else {
+      unresolvedIssues.push(`Уязвимость к последствиям катастрофы «${view.catastrophe.title}»`);
+    }
+  }
+
+  if (!hasFoodSupport && (view.bunker?.supplies ?? '').toLowerCase().includes('дефицит')) {
+    unresolvedIssues.push('Дефицит припасов без специалиста по выращиванию или готовке');
+  }
+
+  let score = 68 + Math.min(32, resolvedThreats.length * 8) - unresolvedIssues.length * 18;
+  score = Math.max(0, Math.min(100, score));
+
+  let status: SurvivalEvaluation['status'];
+  let title: string;
+  let summary: string;
+
+  if (unresolvedIssues.length === 0 || score >= 75) {
+    status = 'survived';
+    title = 'Бункер выстоял';
+    summary =
+      unresolvedIssues.length === 0
+        ? 'Команда идеально дополняет друг друга: все угрозы закрыты, выживание гарантировано.'
+        : 'Команда успешно справилась с ключевыми рисками и уверенно пережила изоляцию.';
+  } else if (score >= 40) {
+    status = 'losses';
+    title = 'Выжили с потерями';
+    summary =
+      'Убежище протянуло до открытия дверей, но нехватка специалистов и незакрытые угрозы дорого обошлись команде.';
+  } else {
+    status = 'fallen';
+    title = 'Бункер пал';
+    summary =
+      'Критические проблемы и отсутствие профильных навыков не оставили шансов пережить срок изоляции.';
+  }
+
+  return {
+    status,
+    title,
+    score,
+    resolvedThreats,
+    unresolvedIssues,
+    summary,
   };
 }

@@ -20,7 +20,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { getTraitAbility } from '../game/abilities';
-import { SKIP_VOTE_ID } from '../game/engine';
+import { SKIP_VOTE_ID, evaluateBunkerSurvival } from '../game/engine';
 import {
   GamePhase,
   Player,
@@ -57,6 +57,13 @@ interface GameScreenProps {
     value: string,
     revealed?: boolean
   ) => void;
+  onHostRerollBonusTrait?: (playerId: string, bonusId: string) => void;
+  onHostUpdateBonusTrait?: (
+    playerId: string,
+    bonusId: string,
+    value: string,
+    revealed?: boolean
+  ) => void;
   onLeave: () => void;
 }
 
@@ -86,6 +93,8 @@ export const GameScreen: React.FC<GameScreenProps> = ({
   onHostGetPlayer,
   onHostRerollTrait,
   onHostUpdateTrait,
+  onHostRerollBonusTrait,
+  onHostUpdateBonusTrait,
   onLeave,
 }) => {
   const [mobileTab, setMobileTab] = useState<'me' | 'players' | 'bunker' | 'chat'>('me');
@@ -102,7 +111,19 @@ export const GameScreen: React.FC<GameScreenProps> = ({
   const [masterPlayerId, setMasterPlayerId] = useState('');
   const [masterRevealSpoilers, setMasterRevealSpoilers] = useState(false);
   const [masterEdits, setMasterEdits] = useState<Partial<Record<TraitCategory, string>>>({});
+  const [masterBonusEdits, setMasterBonusEdits] = useState<Record<string, string>>({});
   const chatEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (activeSpecial) setActiveSpecial(null);
+      else if (activeAbility) setActiveAbility(null);
+      else if (showMasterPanel) setShowMasterPanel(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [activeSpecial, activeAbility, showMasterPanel]);
 
   useEffect(() => {
     if (!view.phaseEndsAt) {
@@ -232,9 +253,9 @@ export const GameScreen: React.FC<GameScreenProps> = ({
                       <span className="badge badge-danger" style={{ flexShrink: 0 }}>
                         Удалено
                       </span>
-                    ) : trait.revealed ? (
+                    ) : trait.revealed || view.phase === 'game_over' ? (
                       <span className="badge badge-ok" style={{ flexShrink: 0 }}>
-                        <Eye size={13} /> Вскрыто
+                        <Eye size={13} /> {trait.revealed ? 'Вскрыто' : 'Открыто'}
                       </span>
                     ) : canReveal ? (
                       <button
@@ -251,13 +272,25 @@ export const GameScreen: React.FC<GameScreenProps> = ({
 
                   {ability && me.alive && view.phase !== 'game_over' && (
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, borderTop: '1px solid var(--border)', paddingTop: 6 }}>
-                      <span style={{ fontSize: 11, color: 'var(--muted)' }}>{ability.description}</span>
+                      <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                        {ability.description}
+                        {!trait.revealed && !abilityUsed && ' (сначала вскройте эту характеристику)'}
+                      </span>
                       {abilityUsed ? (
                         <span className="badge" style={{ flexShrink: 0 }}>Использовано</span>
                       ) : (
                         <button
                           className="btn btn-outline"
-                          style={{ padding: '5px 10px', fontSize: 12, flexShrink: 0, borderColor: 'var(--amber)', color: 'var(--amber)' }}
+                          disabled={!trait.revealed}
+                          title={!trait.revealed ? 'Сначала вскройте эту характеристику' : ability.description}
+                          style={{
+                            padding: '5px 10px',
+                            fontSize: 12,
+                            flexShrink: 0,
+                            borderColor: trait.revealed ? 'var(--amber)' : 'var(--border)',
+                            color: trait.revealed ? 'var(--amber)' : 'var(--muted)',
+                            opacity: trait.revealed ? 1 : 0.55,
+                          }}
                           onClick={() => openAbilityModal(cat, ability)}
                         >
                           <Zap size={13} /> {ability.title}
@@ -285,7 +318,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
                       justifyContent: 'space-between',
                       alignItems: 'center',
                       gap: 10,
-                      borderColor: bt.revealed ? 'rgba(16,185,129,0.35)' : undefined,
+                      borderColor: bt.revealed || view.phase === 'game_over' ? 'rgba(16,185,129,0.35)' : undefined,
                     }}
                   >
                     <div style={{ minWidth: 0 }}>
@@ -296,11 +329,11 @@ export const GameScreen: React.FC<GameScreenProps> = ({
                         {bt.value}
                       </div>
                     </div>
-                    {bt.revealed ? (
+                    {bt.revealed || view.phase === 'game_over' ? (
                       <span className="badge badge-ok" style={{ flexShrink: 0 }}>
-                        <Eye size={13} /> Вскрыто
+                        <Eye size={13} /> {bt.revealed ? 'Вскрыто' : 'Открыто'}
                       </span>
-                    ) : me.alive && view.phase !== 'game_over' ? (
+                    ) : me.alive ? (
                       <button
                         className="btn btn-outline"
                         style={{ padding: '5px 10px', fontSize: 12, flexShrink: 0 }}
@@ -361,7 +394,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
         {view.phase === 'voting' && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <span className="badge badge-amber">
-              Проголосовало: {view.votedPlayerIds.length}/{view.players.filter((p) => p.alive && !p.silenced).length}
+              Проголосовало: {view.votedPlayerIds.length} из {view.players.filter((p) => p.alive && !p.silenced).length}
             </span>
             {me?.alive && me.voteWeight <= 0 ? (
               <span className="badge badge-danger">🤐 Вы лишены голоса</span>
@@ -416,6 +449,9 @@ export const GameScreen: React.FC<GameScreenProps> = ({
                     </span>
                   )}
                   {p.silenced && <span className="badge badge-danger">🤐 Лишён голоса</span>}
+                  {view.phase === 'voting' && view.votedPlayerIds.includes(p.id) && (
+                    <span className="badge badge-ok">✓ Голос отдан</span>
+                  )}
                   {!p.alive && <span className="badge badge-danger">Изгнан</span>}
                   {!p.connected && <span className="badge">Офлайн</span>}
                   {isTurn && <span className="badge badge-amber">Ходит</span>}
@@ -504,12 +540,12 @@ export const GameScreen: React.FC<GameScreenProps> = ({
                 key={bc.id}
                 className="card-subtle"
                 style={{
-                  borderColor: bc.revealed && bc.isThreat ? 'rgba(239,68,68,0.4)' : undefined,
+                  borderColor: (bc.revealed || view.phase === 'game_over') && bc.isThreat ? 'rgba(239,68,68,0.4)' : undefined,
                 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                   <span style={{ fontWeight: 700, fontSize: 13 }}>{bc.title}</span>
-                  {bc.revealed ? (
+                  {bc.revealed || view.phase === 'game_over' ? (
                     <span className={`badge ${bc.isThreat ? 'badge-danger' : 'badge-ok'}`}>
                       {bc.isThreat ? 'Угроза' : 'Ресурс'}
                     </span>
@@ -576,7 +612,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
           value={chatInput}
           onChange={(e) => setChatInput(e.target.value)}
         />
-        <button className="btn btn-primary" type="submit" style={{ padding: '0 14px' }}>
+        <button className="btn btn-primary" type="submit" aria-label="Отправить сообщение" style={{ padding: '0 14px' }}>
           <Send size={16} />
         </button>
       </form>
@@ -641,7 +677,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
                 <SlidersHorizontal size={15} /> Редактор
               </button>
             )}
-            <button className="btn btn-outline" onClick={onLeave} title="Выйти">
+            <button className="btn btn-outline" onClick={onLeave} title="Выйти" aria-label="Выйти из комнаты">
               <LogOut size={16} />
             </button>
           </div>
@@ -655,29 +691,92 @@ export const GameScreen: React.FC<GameScreenProps> = ({
         )}
 
         {view.phase === 'round_result' && view.lastRoundResult && (
-          <div className="card" style={{ borderColor: 'var(--amber)' }}>
-            <div style={{ fontWeight: 700, marginBottom: 4 }}>Итоги раунда {view.lastRoundResult.round}</div>
+          <div className="card" style={{ borderColor: 'var(--amber)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ fontWeight: 700 }}>Итоги раунда {view.lastRoundResult.round}</div>
             <div style={{ fontSize: 14 }}>{view.lastRoundResult.reason}</div>
+            {view.lastRoundResult.voteDetails && view.lastRoundResult.voteDetails.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 2 }}>
+                {view.lastRoundResult.voteDetails.map((vd) => (
+                  <span key={vd.voterId} className="badge" style={{ color: 'var(--text)' }}>
+                    <strong>{vd.voterName}</strong> → {vd.targetName}
+                    {vd.weight > 1 ? ` (×${vd.weight})` : ''}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
-        {view.phase === 'game_over' && (
-          <div className="card" style={{ borderColor: 'var(--ok)', background: 'rgba(16,185,129,0.08)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 800, fontSize: 18, color: '#34d399', marginBottom: 6 }}>
-              <CheckCircle2 size={22} /> Выжившие в бункере!
+        {view.phase === 'game_over' && (() => {
+          const survival = evaluateBunkerSurvival(view);
+          const verdictBorder =
+            survival.status === 'survived'
+              ? 'var(--ok)'
+              : survival.status === 'losses'
+                ? 'var(--amber)'
+                : '#ef4444';
+          const verdictBg =
+            survival.status === 'survived'
+              ? 'rgba(16,185,129,0.08)'
+              : survival.status === 'losses'
+                ? 'rgba(245,158,11,0.08)'
+                : 'rgba(239,68,68,0.08)';
+          const verdictColor =
+            survival.status === 'survived'
+              ? '#34d399'
+              : survival.status === 'losses'
+                ? 'var(--amber)'
+                : '#f87171';
+          return (
+            <div className="card" style={{ borderColor: verdictBorder, background: verdictBg, display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 800, fontSize: 18, color: verdictColor }}>
+                  <CheckCircle2 size={22} /> Разбор выживания: {survival.title}
+                </div>
+                <span className="badge badge-amber mono">Шанс выживания: {survival.score}%</span>
+              </div>
+
+              <div style={{ fontSize: 14 }}>
+                Внутри остались:{' '}
+                <strong>
+                  {view.players
+                    .filter((p) => p.alive)
+                    .map((p) => p.name)
+                    .join(', ') || 'никого'}
+                </strong>
+                . {survival.summary}
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 10 }}>
+                {survival.resolvedThreats.length > 0 && (
+                  <div className="card-subtle" style={{ borderColor: 'rgba(16,185,129,0.3)' }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#34d399', marginBottom: 6 }}>
+                      Закрытые угрозы и плюсы ({survival.resolvedThreats.length})
+                    </div>
+                    <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: 'var(--text)', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {survival.resolvedThreats.map((item, idx) => (
+                        <li key={idx}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {survival.unresolvedIssues.length > 0 && (
+                  <div className="card-subtle" style={{ borderColor: 'rgba(239,68,68,0.35)' }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#f87171', marginBottom: 6 }}>
+                      Незакрытые проблемы ({survival.unresolvedIssues.length})
+                    </div>
+                    <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: 'var(--text)', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {survival.unresolvedIssues.map((item, idx) => (
+                        <li key={idx}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
             </div>
-            <div style={{ fontSize: 14 }}>
-              Внутри остались:{' '}
-              <strong>
-                {view.players
-                  .filter((p) => p.alive)
-                  .map((p) => p.name)
-                  .join(', ')}
-              </strong>
-              . Все характеристики всех игроков теперь открыты.
-            </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Desktop 2-column / Mobile tabbed content */}
         <div className="game-layout">
@@ -730,280 +829,377 @@ export const GameScreen: React.FC<GameScreenProps> = ({
       </div>
 
       {/* Special Card Modal */}
-      {activeSpecial && (
-        <div className="modal-backdrop" onClick={() => setActiveSpecial(null)}>
-          <div
-            className="card"
-            style={{ width: '100%', maxWidth: 400, display: 'flex', flexDirection: 'column', gap: 12 }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 style={{ margin: 0 }}>{activeSpecial.title}</h3>
-            <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>{activeSpecial.description}</p>
+      {activeSpecial && (() => {
+        const specialTargets = view.players.filter(
+          (p) => p.alive && (activeSpecial.allowSelfTarget === false ? p.id !== me?.id : true)
+        );
+        const missingTarget = activeSpecial.needsTargetPlayer && (specialTargets.length === 0 || !targetPlayerId);
+        return (
+          <div className="modal-backdrop" onClick={() => setActiveSpecial(null)}>
+            <div
+              className="card"
+              style={{ width: '100%', maxWidth: 400, display: 'flex', flexDirection: 'column', gap: 12 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 style={{ margin: 0 }}>{activeSpecial.title}</h3>
+              <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>{activeSpecial.description}</p>
 
-            {activeSpecial.needsTargetPlayer && (
-              <div>
-                <label style={{ fontSize: 12, color: 'var(--muted)' }}>Выберите игрока</label>
-                <select
-                  className="input"
-                  value={targetPlayerId}
-                  onChange={(e) => setTargetPlayerId(e.target.value)}
-                >
-                  {view.players
-                    .filter((p) =>
-                      p.alive && (activeSpecial.allowSelfTarget === false ? p.id !== me?.id : true)
-                    )
-                    .map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name} {p.id === me?.id ? '(Вы)' : ''}
+              {activeSpecial.needsTargetPlayer && (
+                <div>
+                  <label style={{ fontSize: 12, color: 'var(--muted)' }}>Выберите игрока</label>
+                  {specialTargets.length === 0 ? (
+                    <div className="badge badge-danger" style={{ marginTop: 4 }}>Нет доступных целей</div>
+                  ) : (
+                    <select
+                      className="input"
+                      value={targetPlayerId}
+                      onChange={(e) => setTargetPlayerId(e.target.value)}
+                    >
+                      {specialTargets.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name} {p.id === me?.id ? '(Вы)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              )}
+
+              {activeSpecial.needsTraitCategory && (
+                <div>
+                  <label style={{ fontSize: 12, color: 'var(--muted)' }}>Выберите категорию</label>
+                  <select
+                    className="input"
+                    value={targetCategory}
+                    onChange={(e) => setTargetCategory(e.target.value as TraitCategory)}
+                  >
+                    {TRAIT_ORDER.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {TRAIT_LABELS[cat]}
                       </option>
                     ))}
-                </select>
-              </div>
-            )}
+                  </select>
+                </div>
+              )}
 
-            {activeSpecial.needsTraitCategory && (
-              <div>
-                <label style={{ fontSize: 12, color: 'var(--muted)' }}>Выберите категорию</label>
-                <select
-                  className="input"
-                  value={targetCategory}
-                  onChange={(e) => setTargetCategory(e.target.value as TraitCategory)}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                <button className="btn btn-outline" onClick={() => setActiveSpecial(null)}>
+                  Отмена
+                </button>
+                <button
+                  className="btn btn-primary"
+                  disabled={missingTarget}
+                  onClick={submitSpecialModal}
                 >
-                  {TRAIT_ORDER.map((cat) => (
-                    <option key={cat} value={cat}>
-                      {TRAIT_LABELS[cat]}
-                    </option>
-                  ))}
-                </select>
+                  Применить
+                </button>
               </div>
-            )}
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-              <button className="btn btn-outline" onClick={() => setActiveSpecial(null)}>
-                Отмена
-              </button>
-              <button className="btn btn-primary" onClick={submitSpecialModal}>
-                Применить
-              </button>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Trait Ability Modal */}
-      {activeAbility && (
-        <div className="modal-backdrop" onClick={() => setActiveAbility(null)}>
-          <div
-            className="card"
-            style={{ width: '100%', maxWidth: 400, display: 'flex', flexDirection: 'column', gap: 12 }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 style={{ margin: 0 }}>{activeAbility.info.title}</h3>
-            <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>
-              {activeAbility.info.description}
-            </p>
-            {activeAbility.info.needsTargetPlayer && (
-              <div>
-                <label style={{ fontSize: 12, color: 'var(--muted)' }}>Выберите игрока</label>
-                <select
-                  className="input"
-                  value={targetPlayerId}
-                  onChange={(e) => setTargetPlayerId(e.target.value)}
-                >
-                  {view.players
-                    .filter(
-                      (p) =>
-                        p.alive &&
-                        (activeAbility.info.canTargetSelf ? true : p.id !== me?.id)
-                    )
-                    .map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name} {p.id === me?.id ? '(Вы)' : ''}
+      {activeAbility && (() => {
+        const abilityTargets = view.players.filter(
+          (p) => p.alive && (activeAbility.info.canTargetSelf ? true : p.id !== me?.id)
+        );
+        const missingTarget = activeAbility.info.needsTargetPlayer && (abilityTargets.length === 0 || !targetPlayerId);
+        return (
+          <div className="modal-backdrop" onClick={() => setActiveAbility(null)}>
+            <div
+              className="card"
+              style={{ width: '100%', maxWidth: 400, display: 'flex', flexDirection: 'column', gap: 12 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 style={{ margin: 0 }}>{activeAbility.info.title}</h3>
+              <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>
+                {activeAbility.info.description}
+              </p>
+              {activeAbility.info.needsTargetPlayer && (
+                <div>
+                  <label style={{ fontSize: 12, color: 'var(--muted)' }}>Выберите игрока</label>
+                  {abilityTargets.length === 0 ? (
+                    <div className="badge badge-danger" style={{ marginTop: 4 }}>Нет доступных целей</div>
+                  ) : (
+                    <select
+                      className="input"
+                      value={targetPlayerId}
+                      onChange={(e) => setTargetPlayerId(e.target.value)}
+                    >
+                      {abilityTargets.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name} {p.id === me?.id ? '(Вы)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              )}
+              {activeAbility.info.needsTraitCategory && (
+                <div>
+                  <label style={{ fontSize: 12, color: 'var(--muted)' }}>Выберите категорию</label>
+                  <select
+                    className="input"
+                    value={targetCategory}
+                    onChange={(e) => setTargetCategory(e.target.value as TraitCategory)}
+                  >
+                    {TRAIT_ORDER.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {TRAIT_LABELS[cat]}
                       </option>
                     ))}
-                </select>
+                  </select>
+                </div>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                <button className="btn btn-outline" onClick={() => setActiveAbility(null)}>
+                  Отмена
+                </button>
+                <button
+                  className="btn btn-primary"
+                  disabled={missingTarget}
+                  onClick={() => {
+                    onUseTraitAbility(
+                      activeAbility.category,
+                      activeAbility.info.needsTargetPlayer ? targetPlayerId : undefined,
+                      activeAbility.info.needsTraitCategory ? targetCategory : undefined
+                    );
+                    setActiveAbility(null);
+                  }}
+                >
+                  Применить
+                </button>
               </div>
-            )}
-            {activeAbility.info.needsTraitCategory && (
-              <div>
-                <label style={{ fontSize: 12, color: 'var(--muted)' }}>Выберите категорию</label>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Host Master Panel Modal */}
+      {showMasterPanel && isHost && (() => {
+        const masterTargetPublic = view.players.find((p) => p.id === masterPlayerId);
+        const masterFullPlayer = onHostGetPlayer?.(masterPlayerId) ?? null;
+        const enabledSet = new Set(view.settings.enabledTraits ?? TRAIT_ORDER);
+        const visibleCats = TRAIT_ORDER.filter(
+          (cat) => enabledSet.has(cat) && !masterTargetPublic?.removedCategories.includes(cat)
+        );
+        return (
+          <div className="modal-backdrop" onClick={() => setShowMasterPanel(false)}>
+            <div
+              className="card"
+              style={{
+                width: '100%',
+                maxWidth: 620,
+                maxHeight: '85dvh',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 12,
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <h3 style={{ margin: 0 }}>Мастер-панель хоста</h3>
+                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                    Редактирование слотов игроков. По умолчанию работает вслепую (без спойлеров).
+                  </div>
+                </div>
+                <button
+                  className="btn btn-outline"
+                  style={{ padding: 6 }}
+                  aria-label="Закрыть редактор"
+                  onClick={() => setShowMasterPanel(false)}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                 <select
                   className="input"
-                  value={targetCategory}
-                  onChange={(e) => setTargetCategory(e.target.value as TraitCategory)}
+                  style={{ flex: 1, minWidth: 180 }}
+                  value={masterPlayerId}
+                  onChange={(e) => {
+                    setMasterPlayerId(e.target.value);
+                    setMasterRevealSpoilers(false);
+                    setMasterEdits({});
+                    setMasterBonusEdits({});
+                  }}
                 >
-                  {TRAIT_ORDER.map((cat) => (
-                    <option key={cat} value={cat}>
-                      {TRAIT_LABELS[cat]}
+                  {view.players.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} {p.id === me?.id ? '(Вы)' : ''}
                     </option>
                   ))}
                 </select>
-              </div>
-            )}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-              <button className="btn btn-outline" onClick={() => setActiveAbility(null)}>
-                Отмена
-              </button>
-              <button
-                className="btn btn-primary"
-                onClick={() => {
-                  onUseTraitAbility(
-                    activeAbility.category,
-                    activeAbility.info.needsTargetPlayer ? targetPlayerId : undefined,
-                    activeAbility.info.needsTraitCategory ? targetCategory : undefined
-                  );
-                  setActiveAbility(null);
-                }}
-              >
-                Применить
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
-      {/* Host Master Panel Modal */}
-      {showMasterPanel && isHost && (
-        <div className="modal-backdrop" onClick={() => setShowMasterPanel(false)}>
-          <div
-            className="card"
-            style={{
-              width: '100%',
-              maxWidth: 620,
-              maxHeight: '85dvh',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 12,
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <h3 style={{ margin: 0 }}>Мастер-панель хоста</h3>
-                <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                  Редактирование слотов игроков. По умолчанию работает вслепую (без спойлеров).
-                </div>
-              </div>
-              <button
-                className="btn btn-outline"
-                style={{ padding: 6 }}
-                onClick={() => setShowMasterPanel(false)}
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-              <select
-                className="input"
-                style={{ flex: 1, minWidth: 180 }}
-                value={masterPlayerId}
-                onChange={(e) => {
-                  setMasterPlayerId(e.target.value);
-                  setMasterRevealSpoilers(false);
-                  setMasterEdits({});
-                }}
-              >
-                {view.players.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} {p.id === me?.id ? '(Вы)' : ''}
-                  </option>
-                ))}
-              </select>
-
-              <button
-                className={`btn ${masterRevealSpoilers ? 'btn-danger' : 'btn-outline'}`}
-                onClick={() => {
-                  const next = !masterRevealSpoilers;
-                  setMasterRevealSpoilers(next);
-                  if (next && onHostGetPlayer) {
-                    const full = onHostGetPlayer(masterPlayerId);
-                    if (full) {
+                <button
+                  className={`btn ${masterRevealSpoilers ? 'btn-danger' : 'btn-outline'}`}
+                  onClick={() => {
+                    const next = !masterRevealSpoilers;
+                    setMasterRevealSpoilers(next);
+                    if (next && masterFullPlayer) {
                       const vals: Partial<Record<TraitCategory, string>> = {};
-                      for (const c of TRAIT_ORDER) vals[c] = full.traits[c].value;
+                      for (const c of TRAIT_ORDER) vals[c] = masterFullPlayer.traits[c].value;
                       setMasterEdits(vals);
+                      const bVals: Record<string, string> = {};
+                      for (const b of masterFullPlayer.bonusTraits) bVals[b.id] = b.value;
+                      setMasterBonusEdits(bVals);
                     }
-                  }
-                }}
-              >
-                <Eye size={15} />
-                {masterRevealSpoilers ? 'Скрыть статы' : 'Показать вручную (спойлер)'}
-              </button>
-            </div>
+                  }}
+                >
+                  <Eye size={15} />
+                  {masterRevealSpoilers ? 'Скрыть статы' : 'Показать вручную (спойлер)'}
+                </button>
+              </div>
 
-            <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {TRAIT_ORDER.map((cat) => {
-                const fullPlayer = masterRevealSpoilers ? onHostGetPlayer?.(masterPlayerId) : null;
-                const trait = fullPlayer?.traits[cat];
-                return (
-                  <div key={cat} className="card-subtle" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                      <strong style={{ fontSize: 12, color: 'var(--amber)' }}>
-                        {TRAIT_LABELS[cat]}
-                      </strong>
-                      <button
-                        className="btn btn-outline"
-                        style={{ padding: '4px 10px', fontSize: 12 }}
-                        onClick={() => {
-                          onHostRerollTrait?.(masterPlayerId, cat);
-                          if (masterRevealSpoilers && onHostGetPlayer) {
-                            const updated = onHostGetPlayer(masterPlayerId);
-                            if (updated) {
-                              setMasterEdits((prev) => ({ ...prev, [cat]: updated.traits[cat].value }));
+              <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {visibleCats.map((cat) => {
+                  const trait = masterRevealSpoilers ? masterFullPlayer?.traits[cat] : null;
+                  return (
+                    <div key={cat} className="card-subtle" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                        <strong style={{ fontSize: 12, color: 'var(--amber)' }}>
+                          {TRAIT_LABELS[cat]}
+                        </strong>
+                        <button
+                          className="btn btn-outline"
+                          style={{ padding: '4px 10px', fontSize: 12 }}
+                          onClick={() => {
+                            onHostRerollTrait?.(masterPlayerId, cat);
+                            if (masterRevealSpoilers && onHostGetPlayer) {
+                              const updated = onHostGetPlayer(masterPlayerId);
+                              if (updated) {
+                                setMasterEdits((prev) => ({ ...prev, [cat]: updated.traits[cat].value }));
+                              }
                             }
-                          }
-                        }}
-                      >
-                        <RefreshCw size={12} /> Перероллить вслепую
-                      </button>
-                    </div>
-
-                    {masterRevealSpoilers && trait && (
-                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                        <input
-                          className="input"
-                          style={{ padding: '6px 10px', fontSize: 13 }}
-                          value={masterEdits[cat] ?? trait.value}
-                          onChange={(e) =>
-                            setMasterEdits((prev) => ({ ...prev, [cat]: e.target.value }))
-                          }
-                        />
-                        <button
-                          className="btn btn-primary"
-                          style={{ padding: '6px 10px', fontSize: 12 }}
-                          onClick={() =>
-                            onHostUpdateTrait?.(
-                              masterPlayerId,
-                              cat,
-                              masterEdits[cat] ?? trait.value
-                            )
-                          }
+                          }}
                         >
-                          Сохр.
-                        </button>
-                        <button
-                          className={`badge ${trait.revealed ? 'badge-ok' : ''}`}
-                          style={{ cursor: 'pointer', flexShrink: 0 }}
-                          onClick={() =>
-                            onHostUpdateTrait?.(
-                              masterPlayerId,
-                              cat,
-                              masterEdits[cat] ?? trait.value,
-                              !trait.revealed
-                            )
-                          }
-                        >
-                          {trait.revealed ? 'Открыто' : 'Скрыто'}
+                          <RefreshCw size={12} /> Перероллить вслепую
                         </button>
                       </div>
-                    )}
-                  </div>
-                );
-              })}
+
+                      {masterRevealSpoilers && trait && (
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                          <input
+                            className="input"
+                            style={{ padding: '6px 10px', fontSize: 13 }}
+                            value={masterEdits[cat] ?? trait.value}
+                            onChange={(e) =>
+                              setMasterEdits((prev) => ({ ...prev, [cat]: e.target.value }))
+                            }
+                          />
+                          <button
+                            className="btn btn-primary"
+                            style={{ padding: '6px 10px', fontSize: 12 }}
+                            onClick={() =>
+                              onHostUpdateTrait?.(
+                                masterPlayerId,
+                                cat,
+                                masterEdits[cat] ?? trait.value
+                              )
+                            }
+                          >
+                            Сохр.
+                          </button>
+                          <button
+                            className={`badge ${trait.revealed ? 'badge-ok' : ''}`}
+                            style={{ cursor: 'pointer', flexShrink: 0 }}
+                            onClick={() =>
+                              onHostUpdateTrait?.(
+                                masterPlayerId,
+                                cat,
+                                masterEdits[cat] ?? trait.value,
+                                !trait.revealed
+                              )
+                            }
+                          >
+                            {trait.revealed ? 'Открыто' : 'Скрыто'}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {masterFullPlayer && masterFullPlayer.bonusTraits.length > 0 && (
+                  <>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#34d399', marginTop: 4 }}>
+                      Дополнительные и кастомные поля
+                    </div>
+                    {masterFullPlayer.bonusTraits.map((bt) => (
+                      <div key={bt.id} className="card-subtle" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                          <strong style={{ fontSize: 12, color: '#34d399' }}>
+                            {bt.label}
+                          </strong>
+                          <button
+                            className="btn btn-outline"
+                            style={{ padding: '4px 10px', fontSize: 12 }}
+                            onClick={() => {
+                              onHostRerollBonusTrait?.(masterPlayerId, bt.id);
+                              if (masterRevealSpoilers && onHostGetPlayer) {
+                                const updated = onHostGetPlayer(masterPlayerId);
+                                const updBonus = updated?.bonusTraits.find((b) => b.id === bt.id);
+                                if (updBonus) {
+                                  setMasterBonusEdits((prev) => ({ ...prev, [bt.id]: updBonus.value }));
+                                }
+                              }
+                            }}
+                          >
+                            <RefreshCw size={12} /> Перероллить вслепую
+                          </button>
+                        </div>
+
+                        {masterRevealSpoilers && (
+                          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                            <input
+                              className="input"
+                              style={{ padding: '6px 10px', fontSize: 13 }}
+                              value={masterBonusEdits[bt.id] ?? bt.value}
+                              onChange={(e) =>
+                                setMasterBonusEdits((prev) => ({ ...prev, [bt.id]: e.target.value }))
+                              }
+                            />
+                            <button
+                              className="btn btn-primary"
+                              style={{ padding: '6px 10px', fontSize: 12 }}
+                              onClick={() =>
+                                onHostUpdateBonusTrait?.(
+                                  masterPlayerId,
+                                  bt.id,
+                                  masterBonusEdits[bt.id] ?? bt.value
+                                )
+                              }
+                            >
+                              Сохр.
+                            </button>
+                            <button
+                              className={`badge ${bt.revealed ? 'badge-ok' : ''}`}
+                              style={{ cursor: 'pointer', flexShrink: 0 }}
+                              onClick={() =>
+                                onHostUpdateBonusTrait?.(
+                                  masterPlayerId,
+                                  bt.id,
+                                  masterBonusEdits[bt.id] ?? bt.value,
+                                  !bt.revealed
+                                )
+                              }
+                            >
+                              {bt.revealed ? 'Открыто' : 'Скрыто'}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 };

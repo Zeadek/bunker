@@ -13,6 +13,7 @@ import {
   castVote,
   computeKicksSchedule,
   createInitialState,
+  evaluateBunkerSurvival,
   getPlayerView,
   hostRerollPlayerTrait,
   hostUpdatePlayerTrait,
@@ -298,5 +299,159 @@ describe('Bunker game engine', () => {
     voteState = castVote(voteState, 'p3', 'p2').state;
     expect(voteState.phase).toBe('round_result');
     expect(voteState.lastRoundResult?.exiledIds).toEqual(['p3']);
+  });
+
+  it('keeps votes secret during voting and reveals voteDetails in round_result', () => {
+    let state = createInitialState('VOTE1', 'p1', 'Алиса');
+    state = addOrReconnectPlayer(state, 'p2', 'Боб').state;
+    state = addOrReconnectPlayer(state, 'p3', 'Вика').state;
+    state = startGame(state).state;
+    state = { ...state, round: 2, kicksPerRound: [0, 1] };
+    state = startVotingPhase(state);
+
+    // p1 votes for p3; p2 hasn't voted yet
+    state = castVote(state, 'p1', 'p3').state;
+    const viewForP2 = getPlayerView(state, 'p2');
+    expect(viewForP2.phase).toBe('voting');
+    expect(viewForP2.votedPlayerIds).toEqual(['p1']);
+    expect(viewForP2.myVote).toBeNull();
+    expect(viewForP2.lastRoundResult).toBeNull();
+
+    // Remaining votes complete voting -> round_result has full voteDetails
+    state = castVote(state, 'p2', 'p3').state;
+    state = castVote(state, 'p3', SKIP_VOTE_ID).state;
+    expect(state.phase).toBe('round_result');
+
+    const resultView = getPlayerView(state, 'p2');
+    expect(resultView.lastRoundResult?.voteDetails).toEqual([
+      { voterId: 'p1', voterName: 'Алиса', targetId: 'p3', targetName: 'Вика', weight: 1 },
+      { voterId: 'p2', voterName: 'Боб', targetId: 'p3', targetName: 'Вика', weight: 1 },
+      { voterId: 'p3', voterName: 'Вика', targetId: SKIP_VOTE_ID, targetName: 'Воздержался', weight: 1 },
+    ]);
+  });
+
+  it('evaluates bunker survival verdict based on threats, catastrophe, and survivor skills', () => {
+    const strongView = {
+      catastrophe: {
+        id: 'nuclear',
+        title: 'Ядерная зима',
+        description: 'Радиация и мороз на поверхности.',
+        duration: '3 года',
+        survivalRate: '12%',
+      },
+      bunker: {
+        areaSqm: 110,
+        capacity: 2,
+        supplies: 'Консервы на 100% срока',
+        cards: [
+          {
+            id: 'b1',
+            title: 'Гидропонная ферма',
+            description: 'Выращивание зелени.',
+            isThreat: false,
+            revealed: true,
+          },
+          {
+            id: 'b2',
+            title: 'Утечка в системе вентиляции',
+            description: 'Нужен инженер.',
+            isThreat: true,
+            revealed: true,
+          },
+        ],
+      },
+      players: [
+        {
+          id: 'p1',
+          name: 'Алиса',
+          isHost: true,
+          connected: true,
+          alive: true,
+          revealedTraits: {
+            profession: 'Инженер-энергетик (Мастер)',
+            biology: 'Женщина, 28 лет (плодовитая)',
+            health: 'Полностью здоров',
+          },
+          revealedBonusTraits: [],
+          removedCategories: [],
+          revealedCount: 3,
+          revealedThisRound: true,
+          hasImmunity: false,
+          silenced: false,
+        },
+        {
+          id: 'p2',
+          name: 'Боб',
+          isHost: false,
+          connected: true,
+          alive: true,
+          revealedTraits: {
+            profession: 'Хирург-травматолог (Эксперт)',
+            biology: 'Мужчина, 32 года (плодовитый)',
+            health: 'Полностью здоров',
+          },
+          revealedBonusTraits: [],
+          removedCategories: [],
+          revealedCount: 3,
+          revealedThisRound: true,
+          hasImmunity: false,
+          silenced: false,
+        },
+      ],
+    };
+
+    const strongEval = evaluateBunkerSurvival(strongView);
+    expect(strongEval.status).toBe('survived');
+    expect(strongEval.title).toBe('Бункер выстоял');
+    expect(strongEval.unresolvedIssues).toEqual([]);
+    expect(strongEval.score).toBeGreaterThanOrEqual(75);
+
+    const weakView = {
+      ...strongView,
+      bunker: {
+        ...strongView.bunker,
+        supplies: 'Острый дефицит воды и еды',
+        cards: [
+          {
+            id: 'b2',
+            title: 'Утечка в системе вентиляции',
+            description: 'Нужен инженер.',
+            isThreat: true,
+            revealed: true,
+          },
+          {
+            id: 'b3',
+            title: 'Нашествие мутировавших крыс',
+            description: 'Нужна борьба с вредителями.',
+            isThreat: true,
+            revealed: true,
+          },
+        ],
+      },
+      players: [
+        {
+          ...strongView.players[0],
+          revealedTraits: {
+            profession: 'Менеджер по продажам (Новичок)',
+            biology: 'Женщина, 50 лет (бесплодна)',
+            health: 'Пневмония [Тяжёлая стадия]',
+          },
+        },
+        {
+          ...strongView.players[1],
+          revealedTraits: {
+            profession: 'Стендап-комик (Любитель)',
+            biology: 'Мужчина, 52 года (бесплоден)',
+            health: 'Язва желудка [Тяжёлая стадия]',
+          },
+        },
+      ],
+    };
+
+    const weakEval = evaluateBunkerSurvival(weakView);
+    expect(weakEval.status).toBe('fallen');
+    expect(weakEval.title).toBe('Бункер пал');
+    expect(weakEval.unresolvedIssues.length).toBeGreaterThanOrEqual(4);
+    expect(weakEval.score).toBeLessThan(40);
   });
 });

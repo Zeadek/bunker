@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Check, Copy, Eye, Layers, LogOut, Play, Users, X } from 'lucide-react';
 import { getAbilityShortBadge } from '../game/abilities';
-import { ALL_PACKS } from '../game/data';
+import { ALL_PACKS, SPECIAL_CARD_TEMPLATES } from '../game/data';
 import { GamePack, GameSettings, PackId, PlayerView, TRAIT_LABELS, TRAIT_ORDER } from '../game/types';
 
 interface LobbyScreenProps {
@@ -25,6 +25,16 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   const [inspectTab, setInspectTab] = useState<string>('profession');
   const [newFieldLabel, setNewFieldLabel] = useState('');
   const [newFieldPool, setNewFieldPool] = useState('');
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (inspectPack) setInspectPack(null);
+      else if (showPackModal) setShowPackModal(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [inspectPack, showPackModal]);
 
   const copyInvite = async () => {
     const url = `${window.location.origin}${window.location.pathname}?room=${view.roomCode}`;
@@ -385,7 +395,12 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                     : 'Активные наборы текущей партии.'}
                 </div>
               </div>
-              <button className="btn btn-outline" style={{ padding: 6 }} onClick={() => setShowPackModal(false)}>
+              <button
+                className="btn btn-outline"
+                style={{ padding: 6 }}
+                aria-label="Закрыть окно выбора паков"
+                onClick={() => setShowPackModal(false)}
+              >
                 <X size={18} />
               </button>
             </div>
@@ -460,7 +475,12 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                 <h3 style={{ margin: 0 }}>Состав: {inspectPack.name}</h3>
                 <div style={{ fontSize: 12, color: 'var(--muted)' }}>{inspectPack.description}</div>
               </div>
-              <button className="btn btn-outline" style={{ padding: 6 }} onClick={() => setInspectPack(null)}>
+              <button
+                className="btn btn-outline"
+                style={{ padding: 6 }}
+                aria-label="Закрыть инспектор пака"
+                onClick={() => setInspectPack(null)}
+              >
                 <X size={18} />
               </button>
             </div>
@@ -479,6 +499,13 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                 onClick={() => setInspectTab('bunker')}
               >
                 Бункеры ({inspectPack.bunkerFeatures.length})
+              </button>
+              <button
+                className={`badge ${inspectTab === 'specials' ? 'badge-amber' : ''}`}
+                style={{ cursor: 'pointer' }}
+                onClick={() => setInspectTab('specials')}
+              >
+                Спецкарты ({SPECIAL_CARD_TEMPLATES.length})
               </button>
               {TRAIT_ORDER.map((cat) => (
                 <button
@@ -523,6 +550,17 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                       </span>
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--muted)' }}>{b.description}</div>
+                  </div>
+                ))}
+
+              {inspectTab === 'specials' &&
+                SPECIAL_CARD_TEMPLATES.map((sc) => (
+                  <div key={sc.type} className="card-subtle">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                      <strong style={{ fontSize: 13 }}>{sc.title}</strong>
+                      {sc.isAdult && <span className="badge badge-danger">18+</span>}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>{sc.description}</div>
                   </div>
                 ))}
 
