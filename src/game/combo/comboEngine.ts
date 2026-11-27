@@ -162,8 +162,8 @@ export function updateComboSettings(
 }
 
 export function startComboGame(state: ComboGameState): { state: ComboGameState; error?: string } {
-  if (state.players.length < 2) {
-    return { state, error: 'Для Combo Draft нужно минимум 2 игрока.' };
+  if (state.players.length < 1) {
+    return { state, error: 'Для запуска Combo Draft нужен хотя бы 1 игрок.' };
   }
 
   const players = state.players.map((p) => {
@@ -509,16 +509,23 @@ export function finalizeDraftBuild(state: ComboGameState): ComboGameState {
       ? ` Незаполненные слоты (${autoFilledCount}) заполнены штрафными картами.`
       : '';
 
-  return {
+  const nextVoteState: ComboGameState = {
     ...state,
     phase: 'combo_vote',
     players,
     votes: {},
     logs: [
       ...state.logs,
-      `Сборка раунда ${state.round} завершена.${extraNote} Начинается слепое голосование (Лайк +25% / Хейт -15%).`,
+      `Сборка раунда ${state.round} завершена.${extraNote}${
+        players.length < 2 ? '' : ' Начинается слепое голосование (Лайк +25% / Хейт -15%).'
+      }`,
     ],
   };
+
+  if (players.length < 2) {
+    return resolveComboVoting(nextVoteState);
+  }
+  return nextVoteState;
 }
 
 export function markComboPlayerReady(

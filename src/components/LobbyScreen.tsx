@@ -15,6 +15,7 @@ import {
 interface LobbyScreenProps {
   view: PlayerView;
   isHost: boolean;
+  errorText?: string | null;
   onUpdateSettings: (settings: GameSettings) => void;
   onAddBot?: () => void;
   onRemoveBot?: (botId: string) => void;
@@ -25,6 +26,7 @@ interface LobbyScreenProps {
 export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   view,
   isHost,
+  errorText,
   onUpdateSettings,
   onAddBot,
   onRemoveBot,
@@ -126,6 +128,21 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             Выйти
           </button>
         </div>
+
+        {errorText && (
+          <div
+            className="card"
+            style={{
+              borderColor: 'rgba(239, 68, 68, 0.5)',
+              background: 'rgba(239, 68, 68, 0.12)',
+              color: '#fca5a5',
+              padding: '10px 14px',
+              fontSize: 13,
+            }}
+          >
+            {errorText}
+          </div>
+        )}
 
         <div className="card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>

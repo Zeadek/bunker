@@ -466,58 +466,6 @@ export function App() {
     );
   }
 
-  if (view.phase === 'lobby') {
-    return (
-      <LobbyScreen
-        view={view}
-        isHost={isHost}
-        onUpdateSettings={(settings: GameSettings) => {
-          if (hostStateRef.current) {
-            syncAllViews({ ...hostStateRef.current, settings });
-          }
-        }}
-        onAddBot={() => {
-          if (!hostStateRef.current) return;
-          const res = addBotPlayer(hostStateRef.current);
-          if (res.error) setErrorText(res.error);
-          else syncAllViews(res.state);
-        }}
-        onRemoveBot={(botId) => {
-          if (!hostStateRef.current) return;
-          syncAllViews(removeBotPlayer(hostStateRef.current, botId));
-        }}
-        onStartGame={() => {
-          const cur = hostStateRef.current;
-          if (!cur) return;
-          if ((cur.settings.gameMode ?? 'classic') === 'combo') {
-            let nextCombo = createComboInitialState(
-              cur.roomCode,
-              cur.players[0]?.id ?? playerId,
-              cur.players[0]?.name ?? 'Хост',
-              {
-                packs: cur.settings.packs,
-                enableAdultContent: cur.settings.enableAdultContent,
-                adultIntensity: cur.settings.adultIntensity ?? 'mixed',
-                totalRounds: cur.settings.comboRounds ?? 5,
-              }
-            );
-            for (const p of cur.players.slice(1)) {
-              nextCombo = addComboPlayer(nextCombo, p.id, p.name, Boolean(p.isBot)).state;
-            }
-            const started = startComboGame(nextCombo);
-            if (started.error) setErrorText(started.error);
-            else syncAllComboViews(started.state);
-            return;
-          }
-          const res = startGame(cur);
-          if (res.error) setErrorText(res.error);
-          else syncAllViews(res.state);
-        }}
-        onLeave={handleLeave}
-      />
-    );
-  }
-
   if (comboState && comboState.phase !== 'lobby') {
     return (
       <ComboGameScreen
@@ -565,6 +513,59 @@ export function App() {
             if (res.error) setErrorText(res.error);
             else syncAllComboViews(res.state);
           }
+        }}
+        onLeave={handleLeave}
+      />
+    );
+  }
+
+  if (view.phase === 'lobby') {
+    return (
+      <LobbyScreen
+        view={view}
+        isHost={isHost}
+        errorText={errorText}
+        onUpdateSettings={(settings: GameSettings) => {
+          if (hostStateRef.current) {
+            syncAllViews({ ...hostStateRef.current, settings });
+          }
+        }}
+        onAddBot={() => {
+          if (!hostStateRef.current) return;
+          const res = addBotPlayer(hostStateRef.current);
+          if (res.error) setErrorText(res.error);
+          else syncAllViews(res.state);
+        }}
+        onRemoveBot={(botId) => {
+          if (!hostStateRef.current) return;
+          syncAllViews(removeBotPlayer(hostStateRef.current, botId));
+        }}
+        onStartGame={() => {
+          const cur = hostStateRef.current;
+          if (!cur) return;
+          if ((cur.settings.gameMode ?? 'classic') === 'combo') {
+            let nextCombo = createComboInitialState(
+              cur.roomCode,
+              cur.players[0]?.id ?? playerId,
+              cur.players[0]?.name ?? 'Хост',
+              {
+                packs: cur.settings.packs,
+                enableAdultContent: cur.settings.enableAdultContent,
+                adultIntensity: cur.settings.adultIntensity ?? 'mixed',
+                totalRounds: cur.settings.comboRounds ?? 5,
+              }
+            );
+            for (const p of cur.players.slice(1)) {
+              nextCombo = addComboPlayer(nextCombo, p.id, p.name, Boolean(p.isBot)).state;
+            }
+            const started = startComboGame(nextCombo);
+            if (started.error) setErrorText(started.error);
+            else syncAllComboViews(started.state);
+            return;
+          }
+          const res = startGame(cur);
+          if (res.error) setErrorText(res.error);
+          else syncAllViews(res.state);
         }}
         onLeave={handleLeave}
       />
