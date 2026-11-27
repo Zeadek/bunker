@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { ALL_PACKS, EXPERTISE_LEVELS, mergePacks } from './data';
+import {
+  ALL_PACKS,
+  EXPERTISE_LEVELS,
+  createSpecialCard,
+  getSpecialCardPool,
+  mergePacks,
+} from './data';
 import { GameState } from './types';
 import {
   SKIP_VOTE_ID,
@@ -11,10 +17,12 @@ import {
   hostRerollPlayerTrait,
   hostUpdatePlayerTrait,
   proceedAfterRoundResult,
+  revealBonusTrait,
   revealTrait,
   startGame,
   startRevealPhase,
   startVotingPhase,
+  useSpecialCard,
   useTraitAbility,
 } from './engine';
 
@@ -136,5 +144,159 @@ describe('Bunker game engine', () => {
     voteState = castVote(voteState, 'p3', 'p2').state;
     expect(voteState.phase).toBe('round_result');
     expect(voteState.lastRoundResult?.exiledIds).toEqual([]);
+  });
+
+  it('filters 18+ content by enableAdultContent in packs and special cards', () => {
+    const safeMerged = mergePacks(['classic'], false);
+    const adultMerged = mergePacks(['classic'], true);
+
+    expect(safeMerged.catastrophes.some((c) => c.isAdult)).toBe(false);
+    expect(adultMerged.catastrophes.some((c) => c.isAdult)).toBe(true);
+    expect(adultMerged.traits.profession.length).toBeGreaterThan(safeMerged.traits.profession.length);
+
+    const safeSpecials = getSpecialCardPool(false);
+    const adultSpecials = getSpecialCardPool(true);
+    expect(safeSpecials.some((s) => s.isAdult)).toBe(false);
+    expect(adultSpecials.some((s) => s.isAdult)).toBe(true);
+    expect(adultSpecials.length).toBe(22);
+  });
+
+  it('supports enabledTraits, customFields, bonusTraits, revealBonusTrait, and specialCardsPerPlayer', () => {
+    let state = createInitialState('CUST1', 'p1', 'Хост');
+    state = addOrReconnectPlayer(state, 'p2', 'Игрок 2').state;
+    state = {
+      ...state,
+      settings: {
+        ...state.settings,
+        specialCardsPerPlayer: 3,
+        enabledTraits: ['profession', 'health', 'gear', 'pocket'],
+        customFields: [{ id: 'cf-1', label: 'Тату', pool: ['Дракон на плече'] }],
+      },
+    };
+
+    const started = startGame(state);
+    expect(started.error).toBeUndefined();
+    state = started.state;
+
+    const p1 = state.players.find((p) => p.id === 'p1')!;
+    expect(p1.specialCards.length).toBe(3);
+    expect(p1.traits.phobia.removed).toBe(true);
+    expect(p1.bonusTraits.length).toBe(1);
+    expect(p1.bonusTraits[0].label).toBe('Тату');
+    expect(p1.bonusTraits[0].value).toBe('Дракон на плече');
+    expect(p1.bonusTraits[0].revealed).toBe(false);
+
+    // Disabled field cannot be revealed
+    state = startRevealPhase(state);
+    const currentId = state.turnOrder[state.currentTurnIndex];
+    const failDisabled = revealTrait(state, currentId, 'phobia');
+    expect(failDisabled.error).toBeDefined();
+
+    // Bonus trait is hidden from others until revealed
+    const beforeView = getPlayerView(state, 'p2');
+    expect(beforeView.players.find((p) => p.id === 'p1')?.revealedBonusTraits).toEqual([]);
+    expect(beforeView.players.find((p) => p.id === 'p1')?.removedCategories).toContain('phobia');
+
+    const revealedBonus = revealBonusTrait(state, 'p1', p1.bonusTraits[0].id);
+    expect(revealedBonus.error).toBeUndefined();
+    const afterView = getPlayerView(revealedBonus.state, 'p2');
+    expect(afterView.players.find((p) => p.id === 'p1')?.revealedBonusTraits).toHaveLength(1);
+  });
+
+  it('supports erase_field, steal_pocket, calm_phobia, and remove_trait', () => {
+    let state = createInitialState('ABIL2', 'p1', 'Юрист');
+    state = addOrReconnectPlayer(state, 'p2', 'Вор').state;
+    state = addOrReconnectPlayer(state, 'p3', 'Бард').state;
+    state = startGame(state).state;
+
+    state = hostUpdatePlayerTrait(state, 'p1', 'profession', 'Юрист по корпоративному праву (Мастер)', false);
+    state = hostUpdatePlayerTrait(state, 'p2', 'profession', 'Вор-тень (Опытный)', false);
+    state = hostUpdatePlayerTrait(state, 'p2', 'pocket', 'Набор отмычек', false);
+    state = hostUpdatePlayerTrait(state, 'p3', 'profession', 'Бард-сказитель (Эксперт)', false);
+    state = hostUpdatePlayerTrait(state, 'p3', 'phobia', 'Клаустрофобия', false);
+
+    // steal_pocket: p2 steals p1's pocket
+    const p1Pocket = state.players[0].traits.pocket.value;
+    const stolen = useTraitAbility(state, 'p2', 'profession', 'p1');
+    expect(stolen.error).toBeUndefined();
+    expect(stolen.state.players[0].traits.pocket.removed).toBe(true);
+    expect(stolen.state.players[1].bonusTraits.some((b) => b.value === p1Pocket)).toBe(true);
+
+    // erase_field: p1 erases p2's gear
+    const erased = useTraitAbility(stolen.state, 'p1', 'profession', 'p2', 'gear');
+    expect(erased.error).toBeUndefined();
+    expect(erased.state.players[1].traits.gear.removed).toBe(true);
+    const p1View = getPlayerView(erased.state, 'p1');
+    expect(p1View.players.find((p) => p.id === 'p2')?.removedCategories).toContain('gear');
+
+    // calm_phobia: p3 calms own phobia
+    const calmed = useTraitAbility(erased.state, 'p3', 'profession', 'p3');
+    expect(calmed.error).toBeUndefined();
+    expect(calmed.state.players[2].traits.phobia.value).toContain('Успокоена');
+
+    // remove_trait special card
+    const card = createSpecialCard('remove_trait', 'sc-rem');
+    let cardState: GameState = {
+      ...calmed.state,
+      players: calmed.state.players.map((p) =>
+        p.id === 'p1' ? { ...p, specialCards: [card] } : p
+      ),
+    };
+    const removedRes = useSpecialCard(cardState, 'p1', 'sc-rem', 'p3', 'hobby');
+    expect(removedRes.error).toBeUndefined();
+    expect(removedRes.state.players[2].traits.hobby.removed).toBe(true);
+  });
+
+  it('supports silence_vote / bribe_bunker, sabotage_bunker, and clone_trait', () => {
+    let state = createInitialState('SPEC1', 'p1', 'Алиса');
+    state = addOrReconnectPlayer(state, 'p2', 'Боб').state;
+    state = addOrReconnectPlayer(state, 'p3', 'Вика').state;
+    state = startGame(state).state;
+
+    const bribe = createSpecialCard('bribe_bunker', 'sc-bribe');
+    const sabotage = createSpecialCard('sabotage_bunker', 'sc-sab');
+    const clone = createSpecialCard('clone_trait', 'sc-clone');
+
+    state = {
+      ...state,
+      round: 2,
+      kicksPerRound: [0, 1],
+      players: state.players.map((p) =>
+        p.id === 'p1' ? { ...p, specialCards: [bribe, sabotage, clone] } : p
+      ),
+    };
+
+    // sabotage_bunker adds a revealed threat
+    const beforeCards = state.bunker!.cards.length;
+    const sabRes = useSpecialCard(state, 'p1', 'sc-sab');
+    expect(sabRes.error).toBeUndefined();
+    expect(sabRes.state.bunker!.cards.length).toBe(beforeCards + 1);
+    expect(sabRes.state.bunker!.cards[beforeCards].isThreat).toBe(true);
+    expect(sabRes.state.bunker!.cards[beforeCards].revealed).toBe(true);
+
+    // clone_trait copies revealed trait from p2
+    const withRevealedP2 = hostUpdatePlayerTrait(sabRes.state, 'p2', 'fact', 'Тайный агент', true);
+    const cloneRes = useSpecialCard(withRevealedP2, 'p1', 'sc-clone', 'p2', 'fact');
+    expect(cloneRes.error).toBeUndefined();
+    expect(cloneRes.state.players[0].traits.fact.value).toBe('Тайный агент');
+
+    // bribe_bunker silences p2 and boosts p1 voteWeight
+    const bribeRes = useSpecialCard(cloneRes.state, 'p1', 'sc-bribe', 'p2');
+    expect(bribeRes.error).toBeUndefined();
+    expect(bribeRes.state.players[1].voteWeight).toBe(0);
+    expect(bribeRes.state.players[0].voteWeight).toBe(2);
+
+    const view = getPlayerView(bribeRes.state, 'p1');
+    expect(view.players.find((p) => p.id === 'p2')?.silenced).toBe(true);
+
+    // Voting rejects silenced player and auto-resolves with remaining voters
+    let voteState = startVotingPhase(bribeRes.state);
+    const silencedVote = castVote(voteState, 'p2', 'p1');
+    expect(silencedVote.error).toBeDefined();
+
+    voteState = castVote(voteState, 'p1', 'p3').state;
+    voteState = castVote(voteState, 'p3', 'p2').state;
+    expect(voteState.phase).toBe('round_result');
+    expect(voteState.lastRoundResult?.exiledIds).toEqual(['p3']);
   });
 });

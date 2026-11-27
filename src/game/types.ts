@@ -37,26 +37,65 @@ export interface TraitCard {
   category: TraitCategory;
   value: string;
   revealed: boolean;
+  removed?: boolean;
 }
 
-export type TraitAbilityKind = 'heal' | 'harm' | 'repair_bunker' | 'scout';
+export interface BonusTrait {
+  id: string;
+  label: string;
+  value: string;
+  revealed: boolean;
+}
+
+export type TraitAbilityKind =
+  | 'heal'
+  | 'harm'
+  | 'infect'
+  | 'repair_bunker'
+  | 'reveal_bunker'
+  | 'scout'
+  | 'steal_pocket'
+  | 'calm_phobia'
+  | 'erase_field'
+  | 'craft_bonus'
+  | 'boost_vote'
+  | 'silence_vote'
+  | 'protect'
+  | 'mutate_health';
 
 export interface TraitAbilityInfo {
   kind: TraitAbilityKind;
   title: string;
   description: string;
   needsTargetPlayer: boolean;
+  canTargetSelf?: boolean;
+  needsTraitCategory?: boolean;
+  allowedCategories?: TraitCategory[];
 }
 
 export type SpecialCardType =
-  | 'swap_trait'
   | 'heal'
+  | 'harm_virus'
+  | 'swap_trait'
+  | 'steal_gear'
   | 'reroll_profession'
+  | 'reroll_target_trait'
+  | 'reroll_all_health'
   | 'force_reveal'
   | 'double_vote'
+  | 'silence_vote'
   | 'immunity'
+  | 'banish_add_kick'
+  | 'skip_round_kick'
   | 'reroll_luggage'
-  | 'reveal_bunker';
+  | 'reveal_bunker'
+  | 'sabotage_bunker'
+  | 'add_bonus_trait'
+  | 'remove_trait'
+  | 'clone_trait'
+  | 'cursed_truth'
+  | 'russian_roulette'
+  | 'bribe_bunker';
 
 export interface SpecialCard {
   id: string;
@@ -64,7 +103,9 @@ export interface SpecialCard {
   title: string;
   description: string;
   used: boolean;
+  isAdult?: boolean;
   needsTargetPlayer?: boolean;
+  allowSelfTarget?: boolean;
   needsTraitCategory?: boolean;
 }
 
@@ -75,6 +116,7 @@ export interface Player {
   connected: boolean;
   alive: boolean;
   traits: Record<TraitCategory, TraitCard>;
+  bonusTraits: BonusTrait[];
   specialCards: SpecialCard[];
   usedTraitAbilities: TraitCategory[];
   revealedThisRound: boolean;
@@ -89,9 +131,12 @@ export interface PublicPlayer {
   connected: boolean;
   alive: boolean;
   revealedTraits: Partial<Record<TraitCategory, string>>;
+  revealedBonusTraits: Array<{ id: string; label: string; value: string }>;
+  removedCategories: TraitCategory[];
   revealedCount: number;
   revealedThisRound: boolean;
   hasImmunity: boolean;
+  silenced: boolean;
 }
 
 export interface Catastrophe {
@@ -100,6 +145,14 @@ export interface Catastrophe {
   description: string;
   duration: string;
   survivalRate: string;
+  isAdult?: boolean;
+}
+
+export interface BunkerFeature {
+  title: string;
+  description: string;
+  isThreat: boolean;
+  isAdult?: boolean;
 }
 
 export interface BunkerCard {
@@ -119,14 +172,18 @@ export interface BunkerInfo {
 
 export type PackId = 'classic' | 'fantasy';
 
-export interface GamePack {
+export interface PackContentBlock {
+  catastrophes: Catastrophe[];
+  bunkerFeatures: BunkerFeature[];
+  supplies: string[];
+  traits: Record<TraitCategory, string[]>;
+}
+
+export interface GamePack extends PackContentBlock {
   id: PackId;
   name: string;
   description: string;
-  catastrophes: Catastrophe[];
-  bunkerFeatures: Array<{ title: string; description: string; isThreat: boolean }>;
-  supplies: string[];
-  traits: Record<TraitCategory, string[]>;
+  adult: PackContentBlock;
 }
 
 export type GamePhase =
@@ -138,8 +195,18 @@ export type GamePhase =
   | 'round_result'
   | 'game_over';
 
+export interface CustomFieldDef {
+  id: string;
+  label: string;
+  pool: string[];
+}
+
 export interface GameSettings {
   packs: PackId[];
+  enableAdultContent: boolean;
+  enabledTraits: TraitCategory[];
+  customFields: CustomFieldDef[];
+  specialCardsPerPlayer: number;
   maxPlayers: number;
   bunkerSeats: number; // 0 = auto floor(players / 2)
   turnSeconds: number;
@@ -212,6 +279,7 @@ export interface PlayerView {
 export type ClientAction =
   | { type: 'HELLO'; playerId: string; name: string }
   | { type: 'REVEAL_TRAIT'; category: TraitCategory }
+  | { type: 'REVEAL_BONUS_TRAIT'; bonusId: string }
   | {
       type: 'USE_SPECIAL';
       cardId: string;
@@ -222,6 +290,7 @@ export type ClientAction =
       type: 'USE_TRAIT_ABILITY';
       category: TraitCategory;
       targetPlayerId?: string;
+      targetCategory?: TraitCategory;
     }
   | { type: 'CAST_VOTE'; targetPlayerId: string }
   | { type: 'CHAT'; text: string };

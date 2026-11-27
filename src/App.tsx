@@ -13,6 +13,7 @@ import {
   hostUpdatePlayerTrait,
   proceedAfterRoundResult,
   resolveVotes,
+  revealBonusTrait,
   revealTrait,
   startDiscussionPhase,
   startGame,
@@ -103,6 +104,16 @@ export function App() {
           syncAllViews(res.state);
           break;
         }
+        case 'REVEAL_BONUS_TRAIT': {
+          const res = revealBonusTrait(current, senderId, action.bonusId);
+          if (res.error) {
+            if (senderId === playerId) setErrorText(res.error);
+            else hostPeerRef.current?.sendToPlayer(senderId, { type: 'ERROR', message: res.error });
+            return;
+          }
+          syncAllViews(res.state);
+          break;
+        }
         case 'USE_SPECIAL': {
           const res = useSpecialCard(
             current,
@@ -124,7 +135,8 @@ export function App() {
             current,
             senderId,
             action.category,
-            action.targetPlayerId
+            action.targetPlayerId,
+            action.targetCategory
           );
           if (res.error) {
             if (senderId === playerId) setErrorText(res.error);
@@ -255,7 +267,7 @@ export function App() {
     const turnId = cur.turnOrder[cur.currentTurnIndex];
     const pl = cur.players.find((p) => p.id === turnId);
     if (!pl) return;
-    const unrevealed = TRAIT_ORDER.find((cat) => !pl.traits[cat].revealed);
+    const unrevealed = TRAIT_ORDER.find((cat) => !pl.traits[cat].revealed && !pl.traits[cat].removed);
     if (unrevealed) {
       const res = revealTrait(cur, pl.id, unrevealed);
       syncAllViews(res.state);
@@ -318,11 +330,14 @@ export function App() {
       onRevealTrait={(category: TraitCategory) =>
         dispatchAction({ type: 'REVEAL_TRAIT', category })
       }
+      onRevealBonusTrait={(bonusId: string) =>
+        dispatchAction({ type: 'REVEAL_BONUS_TRAIT', bonusId })
+      }
       onUseSpecial={(cardId, targetPlayerId, category) =>
         dispatchAction({ type: 'USE_SPECIAL', cardId, targetPlayerId, category })
       }
-      onUseTraitAbility={(category, targetPlayerId) =>
-        dispatchAction({ type: 'USE_TRAIT_ABILITY', category, targetPlayerId })
+      onUseTraitAbility={(category, targetPlayerId, targetCategory) =>
+        dispatchAction({ type: 'USE_TRAIT_ABILITY', category, targetPlayerId, targetCategory })
       }
       onCastVote={(targetPlayerId) =>
         dispatchAction({ type: 'CAST_VOTE', targetPlayerId })

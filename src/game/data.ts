@@ -1,12 +1,31 @@
 import {
-  Catastrophe,
   GamePack,
+  PackContentBlock,
   PackId,
-  SpecialCard,
-  SpecialCardType,
   TRAIT_ORDER,
   TraitCategory,
 } from './types';
+import { CLASSIC_EXTRA_CONTENT, FANTASY_EXTRA_CONTENT } from './packs_extra';
+import { CLASSIC_ADULT_CONTENT, FANTASY_ADULT_CONTENT } from './packs_adult';
+import { SPECIAL_CARD_TEMPLATES, createSpecialCard } from './specials';
+
+export { SPECIAL_CARD_TEMPLATES, createSpecialCard };
+
+function mergeContentBlocks(
+  base: PackContentBlock,
+  extra: PackContentBlock
+): PackContentBlock {
+  const traits = {} as Record<TraitCategory, string[]>;
+  for (const cat of TRAIT_ORDER) {
+    traits[cat] = [...base.traits[cat], ...extra.traits[cat]];
+  }
+  return {
+    catastrophes: [...base.catastrophes, ...extra.catastrophes],
+    bunkerFeatures: [...base.bunkerFeatures, ...extra.bunkerFeatures],
+    supplies: [...base.supplies, ...extra.supplies],
+    traits,
+  };
+}
 
 export const EXPERTISE_LEVELS = [
   'Новичок',
@@ -32,7 +51,9 @@ export const CLASSIC_PACK: GamePack = {
   id: 'classic',
   name: 'Классический',
   description: 'Постапокалипсис, бункеры, реальные профессии и выживание.',
-  catastrophes: [
+  ...mergeContentBlocks(
+    {
+      catastrophes: [
     {
       id: 'nuclear',
       title: 'Ядерная зима',
@@ -400,13 +421,19 @@ export const CLASSIC_PACK: GamePack = {
       'Владеет навыком быстрого успокоения людей при панике.',
     ],
   },
+    },
+    CLASSIC_EXTRA_CONTENT
+  ),
+  adult: CLASSIC_ADULT_CONTENT,
 };
 
 export const FANTASY_PACK: GamePack = {
   id: 'fantasy',
   name: 'Фэнтезийный',
   description: 'Расы (орки, гоблины, эльфы), магия (некроманты, паладин) и цитадели.',
-  catastrophes: [
+  ...mergeContentBlocks(
+    {
+      catastrophes: [
     {
       id: 'dark_lord',
       title: 'Нашествие Повелителя Тьмы',
@@ -705,6 +732,10 @@ export const FANTASY_PACK: GamePack = {
       'Скрывает, что его преследует гильдия наёмных убийц.',
     ],
   },
+    },
+    FANTASY_EXTRA_CONTENT
+  ),
+  adult: FANTASY_ADULT_CONTENT,
 };
 
 export const ALL_PACKS: Record<PackId, GamePack> = {
@@ -712,78 +743,30 @@ export const ALL_PACKS: Record<PackId, GamePack> = {
   fantasy: FANTASY_PACK,
 };
 
-export function mergePacks(packIds: PackId[]): {
-  catastrophes: Catastrophe[];
-  bunkerFeatures: Array<{ title: string; description: string; isThreat: boolean }>;
-  supplies: string[];
-  traits: Record<TraitCategory, string[]>;
-} {
+export function mergePacks(
+  packIds: PackId[],
+  enableAdultContent = false
+): PackContentBlock {
   const validIds: PackId[] = packIds.filter((id) => Boolean(ALL_PACKS[id]));
   const active = validIds.length > 0 ? validIds.map((id) => ALL_PACKS[id]) : [CLASSIC_PACK];
 
+  const blocks: PackContentBlock[] = active.flatMap((p) =>
+    enableAdultContent ? [p, p.adult] : [p]
+  );
+
   const traits = {} as Record<TraitCategory, string[]>;
   for (const cat of TRAIT_ORDER) {
-    traits[cat] = active.flatMap((p) => p.traits[cat]);
+    traits[cat] = blocks.flatMap((b) => b.traits[cat]);
   }
 
   return {
-    catastrophes: active.flatMap((p) => p.catastrophes),
-    bunkerFeatures: active.flatMap((p) => p.bunkerFeatures),
-    supplies: active.flatMap((p) => p.supplies),
+    catastrophes: blocks.flatMap((b) => b.catastrophes),
+    bunkerFeatures: blocks.flatMap((b) => b.bunkerFeatures),
+    supplies: blocks.flatMap((b) => b.supplies),
     traits,
   };
 }
 
-export const SPECIAL_CARD_TEMPLATES: Array<Omit<SpecialCard, 'id' | 'used'>> = [
-  {
-    type: 'heal',
-    title: 'Чудо-вакцина',
-    description: 'Полностью излечивает здоровье выбранного игрока (меняет на «Полностью здоров»).',
-    needsTargetPlayer: true,
-  },
-  {
-    type: 'swap_trait',
-    title: 'Рокировка',
-    description: 'Обменяйтесь выбранной категорией характеристик с другим игроком.',
-    needsTargetPlayer: true,
-    needsTraitCategory: true,
-  },
-  {
-    type: 'reroll_profession',
-    title: 'Переквалификация',
-    description: 'Заменяет вашу профессию на новую случайную из колоды.',
-  },
-  {
-    type: 'force_reveal',
-    title: 'Допрос с пристрастием',
-    description: 'Заставляет выбранного игрока немедленно вскрыть указанную характеристику.',
-    needsTargetPlayer: true,
-    needsTraitCategory: true,
-  },
-  {
-    type: 'double_vote',
-    title: 'Двойной голос',
-    description: 'Ваш голос на ближайшем голосовании считается за два.',
-  },
-  {
-    type: 'immunity',
-    title: 'Неприкосновенность',
-    description: 'Защищает выбранного игрока (или себя) от изгнания в этом раунде.',
-    needsTargetPlayer: true,
-  },
-  {
-    type: 'reroll_luggage',
-    title: 'Заначка',
-    description: 'Заменяет ваш крупный багаж на новый случайный предмет из колоды.',
-  },
-  {
-    type: 'reveal_bunker',
-    title: 'Разведка отсека',
-    description: 'Немедленно открывает одну скрытую карту особенности или угрозы бункера.',
-  },
-];
-
-export function createSpecialCard(type: SpecialCardType, id: string): SpecialCard {
-  const tpl = SPECIAL_CARD_TEMPLATES.find((t) => t.type === type) ?? SPECIAL_CARD_TEMPLATES[0];
-  return { ...tpl, id, used: false };
+export function getSpecialCardPool(enableAdultContent = false) {
+  return SPECIAL_CARD_TEMPLATES.filter((tpl) => enableAdultContent || !tpl.isAdult);
 }

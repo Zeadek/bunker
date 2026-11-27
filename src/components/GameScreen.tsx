@@ -37,8 +37,13 @@ interface GameScreenProps {
   isHost: boolean;
   errorText: string | null;
   onRevealTrait: (category: TraitCategory) => void;
+  onRevealBonusTrait: (bonusId: string) => void;
   onUseSpecial: (cardId: string, targetPlayerId?: string, category?: TraitCategory) => void;
-  onUseTraitAbility: (category: TraitCategory, targetPlayerId?: string) => void;
+  onUseTraitAbility: (
+    category: TraitCategory,
+    targetPlayerId?: string,
+    targetCategory?: TraitCategory
+  ) => void;
   onCastVote: (targetPlayerId: string) => void;
   onSendChat: (text: string) => void;
   onHostNextPhase: () => void;
@@ -70,6 +75,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
   isHost,
   errorText,
   onRevealTrait,
+  onRevealBonusTrait,
   onUseSpecial,
   onUseTraitAbility,
   onCastVote,
@@ -125,7 +131,10 @@ export const GameScreen: React.FC<GameScreenProps> = ({
       onUseSpecial(card.id);
       return;
     }
-    const firstTarget = view.players.find((p) => p.alive && p.id !== me?.id)?.id ?? me?.id ?? '';
+    const allowSelf = card.allowSelfTarget !== false;
+    const firstTarget = allowSelf
+      ? me?.id ?? view.players.find((p) => p.alive)?.id ?? ''
+      : view.players.find((p) => p.alive && p.id !== me?.id)?.id ?? '';
     setTargetPlayerId(firstTarget);
     setTargetCategory('profession');
     setActiveSpecial(card);
@@ -142,15 +151,16 @@ export const GameScreen: React.FC<GameScreenProps> = ({
   };
 
   const openAbilityModal = (category: TraitCategory, info: TraitAbilityInfo) => {
-    if (!info.needsTargetPlayer) {
+    if (!info.needsTargetPlayer && !info.needsTraitCategory) {
       onUseTraitAbility(category);
       return;
     }
-    const firstTarget =
-      info.kind === 'heal'
-        ? me?.id ?? view.players.find((p) => p.alive)?.id ?? ''
-        : view.players.find((p) => p.alive && p.id !== me?.id)?.id ?? '';
+    const allowSelf = Boolean(info.canTargetSelf);
+    const firstTarget = allowSelf
+      ? me?.id ?? view.players.find((p) => p.alive)?.id ?? ''
+      : view.players.find((p) => p.alive && p.id !== me?.id)?.id ?? '';
     setTargetPlayerId(firstTarget);
+    setTargetCategory('profession');
     setActiveAbility({ category, info });
   };
 
@@ -164,10 +174,13 @@ export const GameScreen: React.FC<GameScreenProps> = ({
 
   const renderMySection = () => (
     <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, flexWrap: 'wrap' }}>
           <User size={18} color="var(--amber)" />
-          Мой персонаж {me && !me.alive && <span className="badge badge-danger">Изгнан</span>}
+          Мой персонаж
+          {me && !me.alive && <span className="badge badge-danger">Изгнан</span>}
+          {me && me.alive && me.voteWeight <= 0 && <span className="badge badge-danger">🤐 Лишён голоса</span>}
+          {me && me.alive && me.voteWeight > 1 && <span className="badge badge-amber">Голос ×{me.voteWeight}</span>}
         </div>
         {isMyTurn && <span className="badge badge-amber">Ваш ход: вскройте карту!</span>}
       </div>
@@ -177,9 +190,10 @@ export const GameScreen: React.FC<GameScreenProps> = ({
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {TRAIT_ORDER.map((cat) => {
               const trait = me.traits[cat];
+              const isRemoved = Boolean(trait.removed);
               const canReveal =
-                view.phase === 'reveal' && isMyTurn && !trait.revealed && me.alive;
-              const ability = getTraitAbility(cat, trait.value);
+                view.phase === 'reveal' && isMyTurn && !trait.revealed && !isRemoved && me.alive;
+              const ability = isRemoved ? null : getTraitAbility(cat, trait.value);
               const abilityUsed = me.usedTraitAbilities.includes(cat);
 
               return (
@@ -190,7 +204,12 @@ export const GameScreen: React.FC<GameScreenProps> = ({
                     display: 'flex',
                     flexDirection: 'column',
                     gap: 8,
-                    borderColor: trait.revealed ? 'rgba(16,185,129,0.35)' : undefined,
+                    opacity: isRemoved ? 0.55 : 1,
+                    borderColor: isRemoved
+                      ? 'rgba(239,68,68,0.3)'
+                      : trait.revealed
+                        ? 'rgba(16,185,129,0.35)'
+                        : undefined,
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
@@ -198,11 +217,22 @@ export const GameScreen: React.FC<GameScreenProps> = ({
                       <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase' }}>
                         {TRAIT_LABELS[cat]}
                       </div>
-                      <div style={{ fontSize: 14, fontWeight: 600, wordBreak: 'break-word' }}>
-                        {trait.value}
+                      <div
+                        style={{
+                          fontSize: 14,
+                          fontWeight: 600,
+                          wordBreak: 'break-word',
+                          textDecoration: isRemoved ? 'line-through' : undefined,
+                        }}
+                      >
+                        {isRemoved ? 'Удалено / Отключено' : trait.value}
                       </div>
                     </div>
-                    {trait.revealed ? (
+                    {isRemoved ? (
+                      <span className="badge badge-danger" style={{ flexShrink: 0 }}>
+                        Удалено
+                      </span>
+                    ) : trait.revealed ? (
                       <span className="badge badge-ok" style={{ flexShrink: 0 }}>
                         <Eye size={13} /> Вскрыто
                       </span>
@@ -240,6 +270,53 @@ export const GameScreen: React.FC<GameScreenProps> = ({
             })}
           </div>
 
+          {me.bonusTraits && me.bonusTraits.length > 0 && (
+            <div style={{ marginTop: 4 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, color: '#34d399' }}>
+                Дополнительные поля и трофеи
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {me.bonusTraits.map((bt) => (
+                  <div
+                    key={bt.id}
+                    className="card-subtle"
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      gap: 10,
+                      borderColor: bt.revealed ? 'rgba(16,185,129,0.35)' : undefined,
+                    }}
+                  >
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 11, color: '#34d399', textTransform: 'uppercase' }}>
+                        {bt.label}
+                      </div>
+                      <div style={{ fontSize: 13, fontWeight: 600, wordBreak: 'break-word' }}>
+                        {bt.value}
+                      </div>
+                    </div>
+                    {bt.revealed ? (
+                      <span className="badge badge-ok" style={{ flexShrink: 0 }}>
+                        <Eye size={13} /> Вскрыто
+                      </span>
+                    ) : me.alive && view.phase !== 'game_over' ? (
+                      <button
+                        className="btn btn-outline"
+                        style={{ padding: '5px 10px', fontSize: 12, flexShrink: 0 }}
+                        onClick={() => onRevealBonusTrait(bt.id)}
+                      >
+                        Вскрыть
+                      </button>
+                    ) : (
+                      <span className="badge" style={{ flexShrink: 0 }}>Скрыто</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div style={{ marginTop: 4 }}>
             <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
               <Sparkles size={16} color="var(--amber)" />
@@ -248,9 +325,12 @@ export const GameScreen: React.FC<GameScreenProps> = ({
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 8 }}>
               {me.specialCards.map((sc) => (
                 <div key={sc.id} className="card-subtle" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
                     <span style={{ fontWeight: 700, fontSize: 13 }}>{sc.title}</span>
-                    {sc.used && <span className="badge">Использовано</span>}
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      {sc.isAdult && <span className="badge badge-danger">18+</span>}
+                      {sc.used && <span className="badge">Использовано</span>}
+                    </div>
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--muted)', flex: 1 }}>{sc.description}</div>
                   {!sc.used && me.alive && view.phase !== 'game_over' && (
@@ -273,7 +353,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
 
   const renderPlayersSection = () => (
     <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700 }}>
           <Users size={18} color="var(--amber)" />
           Игроки ({view.players.filter((p) => p.alive).length} в игре / {view.bunker?.capacity ?? '?'} мест)
@@ -281,19 +361,25 @@ export const GameScreen: React.FC<GameScreenProps> = ({
         {view.phase === 'voting' && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <span className="badge badge-amber">
-              Проголосовало: {view.votedPlayerIds.length}/{view.players.filter((p) => p.alive).length}
+              Проголосовало: {view.votedPlayerIds.length}/{view.players.filter((p) => p.alive && !p.silenced).length}
             </span>
-            {me?.alive && !view.myVote && (
-              <button
-                className="btn btn-outline"
-                style={{ padding: '4px 10px', fontSize: 12 }}
-                onClick={() => onCastVote(SKIP_VOTE_ID)}
-              >
-                Воздержаться
-              </button>
-            )}
-            {view.myVote === SKIP_VOTE_ID && (
-              <span className="badge">Вы воздержались</span>
+            {me?.alive && me.voteWeight <= 0 ? (
+              <span className="badge badge-danger">🤐 Вы лишены голоса</span>
+            ) : (
+              <>
+                {me?.alive && !view.myVote && (
+                  <button
+                    className="btn btn-outline"
+                    style={{ padding: '4px 10px', fontSize: 12 }}
+                    onClick={() => onCastVote(SKIP_VOTE_ID)}
+                  >
+                    Воздержаться
+                  </button>
+                )}
+                {view.myVote === SKIP_VOTE_ID && (
+                  <span className="badge">Вы воздержались</span>
+                )}
+              </>
             )}
           </div>
         )}
@@ -305,6 +391,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
           const canVoteFor =
             view.phase === 'voting' &&
             me?.alive &&
+            me.voteWeight > 0 &&
             p.alive &&
             p.id !== me.id &&
             !view.myVote &&
@@ -328,6 +415,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
                       <Shield size={12} /> Иммунитет
                     </span>
                   )}
+                  {p.silenced && <span className="badge badge-danger">🤐 Лишён голоса</span>}
                   {!p.alive && <span className="badge badge-danger">Изгнан</span>}
                   {!p.connected && <span className="badge">Офлайн</span>}
                   {isTurn && <span className="badge badge-amber">Ходит</span>}
@@ -347,6 +435,17 @@ export const GameScreen: React.FC<GameScreenProps> = ({
 
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                 {TRAIT_ORDER.map((cat) => {
+                  if (p.removedCategories.includes(cat)) {
+                    return (
+                      <span
+                        key={cat}
+                        className="badge"
+                        style={{ opacity: 0.5, textDecoration: 'line-through' }}
+                      >
+                        {TRAIT_LABELS[cat]}: удалено
+                      </span>
+                    );
+                  }
                   const val = p.revealedTraits[cat];
                   if (!val) return null;
                   return (
@@ -355,7 +454,12 @@ export const GameScreen: React.FC<GameScreenProps> = ({
                     </span>
                   );
                 })}
-                {p.revealedCount === 0 && (
+                {p.revealedBonusTraits.map((bt) => (
+                  <span key={bt.id} className="badge badge-ok" style={{ color: 'var(--text)', whiteSpace: 'normal' }}>
+                    <strong style={{ color: '#34d399' }}>{bt.label}:</strong> {bt.value}
+                  </span>
+                ))}
+                {p.revealedCount === 0 && p.revealedBonusTraits.length === 0 && p.removedCategories.length === 0 && (
                   <span style={{ fontSize: 12, color: 'var(--muted)' }}>
                     Характеристики ещё не вскрыты
                   </span>
@@ -645,10 +749,12 @@ export const GameScreen: React.FC<GameScreenProps> = ({
                   onChange={(e) => setTargetPlayerId(e.target.value)}
                 >
                   {view.players
-                    .filter((p) => p.alive && (activeSpecial.type !== 'swap_trait' && activeSpecial.type !== 'force_reveal' ? true : p.id !== me?.id))
+                    .filter((p) =>
+                      p.alive && (activeSpecial.allowSelfTarget === false ? p.id !== me?.id : true)
+                    )
                     .map((p) => (
                       <option key={p.id} value={p.id}>
-                        {p.name}
+                        {p.name} {p.id === me?.id ? '(Вы)' : ''}
                       </option>
                     ))}
                 </select>
@@ -696,26 +802,44 @@ export const GameScreen: React.FC<GameScreenProps> = ({
             <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>
               {activeAbility.info.description}
             </p>
-            <div>
-              <label style={{ fontSize: 12, color: 'var(--muted)' }}>Выберите игрока</label>
-              <select
-                className="input"
-                value={targetPlayerId}
-                onChange={(e) => setTargetPlayerId(e.target.value)}
-              >
-                {view.players
-                  .filter(
-                    (p) =>
-                      p.alive &&
-                      (activeAbility.info.kind === 'heal' ? true : p.id !== me?.id)
-                  )
-                  .map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
+            {activeAbility.info.needsTargetPlayer && (
+              <div>
+                <label style={{ fontSize: 12, color: 'var(--muted)' }}>Выберите игрока</label>
+                <select
+                  className="input"
+                  value={targetPlayerId}
+                  onChange={(e) => setTargetPlayerId(e.target.value)}
+                >
+                  {view.players
+                    .filter(
+                      (p) =>
+                        p.alive &&
+                        (activeAbility.info.canTargetSelf ? true : p.id !== me?.id)
+                    )
+                    .map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} {p.id === me?.id ? '(Вы)' : ''}
+                      </option>
+                    ))}
+                </select>
+              </div>
+            )}
+            {activeAbility.info.needsTraitCategory && (
+              <div>
+                <label style={{ fontSize: 12, color: 'var(--muted)' }}>Выберите категорию</label>
+                <select
+                  className="input"
+                  value={targetCategory}
+                  onChange={(e) => setTargetCategory(e.target.value as TraitCategory)}
+                >
+                  {TRAIT_ORDER.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {TRAIT_LABELS[cat]}
                     </option>
                   ))}
-              </select>
-            </div>
+                </select>
+              </div>
+            )}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
               <button className="btn btn-outline" onClick={() => setActiveAbility(null)}>
                 Отмена
@@ -723,7 +847,11 @@ export const GameScreen: React.FC<GameScreenProps> = ({
               <button
                 className="btn btn-primary"
                 onClick={() => {
-                  onUseTraitAbility(activeAbility.category, targetPlayerId);
+                  onUseTraitAbility(
+                    activeAbility.category,
+                    activeAbility.info.needsTargetPlayer ? targetPlayerId : undefined,
+                    activeAbility.info.needsTraitCategory ? targetCategory : undefined
+                  );
                   setActiveAbility(null);
                 }}
               >

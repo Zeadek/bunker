@@ -23,6 +23,8 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   const [showPackModal, setShowPackModal] = useState(false);
   const [inspectPack, setInspectPack] = useState<GamePack | null>(null);
   const [inspectTab, setInspectTab] = useState<string>('profession');
+  const [newFieldLabel, setNewFieldLabel] = useState('');
+  const [newFieldPool, setNewFieldPool] = useState('');
 
   const copyInvite = async () => {
     const url = `${window.location.origin}${window.location.pathname}?room=${view.roomCode}`;
@@ -45,6 +47,37 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
     if (exists && current.length <= 1) return;
     const nextPacks = exists ? current.filter((id) => id !== packId) : [...current, packId];
     onUpdateSettings({ ...view.settings, packs: nextPacks });
+  };
+
+  const toggleTrait = (cat: typeof TRAIT_ORDER[number]) => {
+    const current = view.settings.enabledTraits ?? TRAIT_ORDER;
+    const exists = current.includes(cat);
+    if (exists && current.length <= 1) return;
+    const nextTraits = exists ? current.filter((c) => c !== cat) : [...current, cat];
+    onUpdateSettings({ ...view.settings, enabledTraits: nextTraits });
+  };
+
+  const addCustomField = () => {
+    const label = newFieldLabel.trim();
+    const pool = newFieldPool
+      .split(/[\n,;]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (!label || pool.length === 0) return;
+    const nextFields = [
+      ...(view.settings.customFields ?? []),
+      { id: `cf-${Date.now().toString(36)}`, label, pool },
+    ];
+    onUpdateSettings({ ...view.settings, customFields: nextFields });
+    setNewFieldLabel('');
+    setNewFieldPool('');
+  };
+
+  const removeCustomField = (id: string) => {
+    onUpdateSettings({
+      ...view.settings,
+      customFields: (view.settings.customFields ?? []).filter((f) => f.id !== id),
+    });
   };
 
   return (
@@ -111,6 +144,9 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                   </span>
                 );
               })}
+              {view.settings.enableAdultContent && (
+                <span className="badge badge-danger">18+ Включено</span>
+              )}
             </div>
           </div>
 
@@ -121,9 +157,9 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
         </div>
 
         {isHost && (
-          <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div style={{ fontWeight: 700 }}>Настройки партии</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
               <div>
                 <label style={{ fontSize: 12, color: 'var(--muted)' }}>
                   Мест в бункере (0 = авто {Math.max(1, Math.floor(view.players.length / 2))})
@@ -138,6 +174,22 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                     onUpdateSettings({
                       ...view.settings,
                       bunkerSeats: Math.max(0, Number(e.target.value) || 0),
+                    })
+                  }
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: 'var(--muted)' }}>Спецкарт на игрока (0–5)</label>
+                <input
+                  className="input"
+                  type="number"
+                  min={0}
+                  max={5}
+                  value={view.settings.specialCardsPerPlayer ?? 2}
+                  onChange={(e) =>
+                    onUpdateSettings({
+                      ...view.settings,
+                      specialCardsPerPlayer: Math.max(0, Math.min(5, Number(e.target.value) || 0)),
                     })
                   }
                 />
@@ -173,6 +225,118 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
                     })
                   }
                 />
+              </div>
+            </div>
+
+            {/* 18+ toggle */}
+            <label
+              className="card-subtle"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+                cursor: 'pointer',
+                borderColor: view.settings.enableAdultContent ? 'rgba(239,68,68,0.5)' : undefined,
+              }}
+            >
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>🔞 18+ карточки в паке</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                  Добавляет чёрный юмор, жёсткие сюжеты, компромат и 18+ спецкарты во все категории.
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={Boolean(view.settings.enableAdultContent)}
+                onChange={(e) =>
+                  onUpdateSettings({
+                    ...view.settings,
+                    enableAdultContent: e.target.checked,
+                  })
+                }
+                style={{ width: 20, height: 20, accentColor: '#ef4444', flexShrink: 0 }}
+              />
+            </label>
+
+            {/* Enabled trait categories */}
+            <div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>
+                Активные поля персонажей (нажмите, чтобы отключить лишние):
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {TRAIT_ORDER.map((cat) => {
+                  const active = (view.settings.enabledTraits ?? TRAIT_ORDER).includes(cat);
+                  return (
+                    <button
+                      key={cat}
+                      type="button"
+                      className={`badge ${active ? 'badge-amber' : ''}`}
+                      style={{ cursor: 'pointer', opacity: active ? 1 : 0.45 }}
+                      onClick={() => toggleTrait(cat)}
+                    >
+                      {TRAIT_LABELS[cat]}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Custom fields */}
+            <div className="card-subtle" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ fontWeight: 700, fontSize: 13 }}>Кастомные поля (доп. характеристики)</div>
+              {(view.settings.customFields ?? []).length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {view.settings.customFields.map((cf) => (
+                    <div
+                      key={cf.id}
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        gap: 8,
+                        fontSize: 12,
+                        padding: '4px 8px',
+                        background: 'rgba(255,255,255,0.03)',
+                        borderRadius: 6,
+                      }}
+                    >
+                      <span>
+                        <strong>{cf.label}</strong> ({cf.pool.length} вар.)
+                      </span>
+                      <button
+                        type="button"
+                        className="btn btn-outline"
+                        style={{ padding: '2px 8px', fontSize: 11 }}
+                        onClick={() => removeCustomField(cf.id)}
+                      >
+                        Убрать
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr auto', gap: 8, alignItems: 'center' }}>
+                <input
+                  className="input"
+                  placeholder="Название (напр. Тату)"
+                  value={newFieldLabel}
+                  onChange={(e) => setNewFieldLabel(e.target.value)}
+                />
+                <input
+                  className="input"
+                  placeholder="Варианты через запятую"
+                  value={newFieldPool}
+                  onChange={(e) => setNewFieldPool(e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  style={{ padding: '8px 12px', fontSize: 12 }}
+                  onClick={addCustomField}
+                >
+                  Добавить
+                </button>
               </div>
             </div>
 
