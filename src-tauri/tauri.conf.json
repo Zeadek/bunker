@@ -1,0 +1,26 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Bunker P2P",
+  "version": "1.0.0",
+  "identifier": "com.bunker.p2p",
+  "build": {
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "БУНКЕР // P2P",
+        "width": 1180,
+        "height": 820,
+        "minWidth": 380,
+        "minHeight": 640
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": false
+  }
+}

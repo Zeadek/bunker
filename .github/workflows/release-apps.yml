@@ -14,12 +14,12 @@ jobs:
         with:
           node-version: 22
       - run: npm ci
-      - run: npm install --no-save electron electron-builder
-      - run: npm run electron:build
+      - run: npm run build
+      - run: cargo build --release --manifest-path src-tauri/Cargo.toml
       - uses: actions/upload-artifact@v4
         with:
           name: Bunker-P2P-Windows-exe
-          path: release/*.exe
+          path: src-tauri/target/release/bunker-p2p.exe
 
   build-android:
     runs-on: ubuntu-latest
