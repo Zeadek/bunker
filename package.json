@@ -1,0 +1,45 @@
+{
+  "name": "bunker-p2p",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cross-platform P2P Bunker party game (Windows, Android, iOS, Web)",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "electron:build": "npm run build && npx electron-builder --win portable",
+    "cap:sync": "npm run build && npx cap sync"
+  },
+  "build": {
+    "appId": "com.bunker.p2p",
+    "productName": "Bunker P2P",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ],
+    "win": {
+      "target": [
+        "portable"
+      ]
+    }
+  },
+  "dependencies": {
+    "lucide-react": "^0.468.0",
+    "peerjs": "^1.5.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.6.3",
+    "vite": "^6.0.3",
+    "vitest": "^2.1.8"
+  }
+}
