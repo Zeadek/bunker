@@ -2,12 +2,22 @@ import React, { useEffect, useState } from 'react';
 import { Check, Copy, Eye, Layers, LogOut, Play, Users, X } from 'lucide-react';
 import { getAbilityShortBadge } from '../game/abilities';
 import { ALL_PACKS, SPECIAL_CARD_TEMPLATES } from '../game/data';
-import { GamePack, GameSettings, PackId, PlayerView, TRAIT_LABELS, TRAIT_ORDER } from '../game/types';
+import {
+  AdultIntensity,
+  GamePack,
+  GameSettings,
+  PackId,
+  PlayerView,
+  TRAIT_LABELS,
+  TRAIT_ORDER,
+} from '../game/types';
 
 interface LobbyScreenProps {
   view: PlayerView;
   isHost: boolean;
   onUpdateSettings: (settings: GameSettings) => void;
+  onAddBot?: () => void;
+  onRemoveBot?: (botId: string) => void;
   onStartGame: () => void;
   onLeave: () => void;
 }
@@ -16,6 +26,8 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   view,
   isHost,
   onUpdateSettings,
+  onAddBot,
+  onRemoveBot,
   onStartGame,
   onLeave,
 }) => {
@@ -23,6 +35,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   const [showPackModal, setShowPackModal] = useState(false);
   const [inspectPack, setInspectPack] = useState<GamePack | null>(null);
   const [inspectTab, setInspectTab] = useState<string>('profession');
+  const [inspectFilter, setInspectFilter] = useState<'all' | 'adult'>('all');
   const [newFieldLabel, setNewFieldLabel] = useState('');
   const [newFieldPool, setNewFieldPool] = useState('');
 
@@ -115,12 +128,25 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
         </div>
 
         <div className="card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700 }}>
               <Users size={18} color="var(--amber)" />
               Игроки ({view.players.length} / {view.settings.maxPlayers})
             </div>
-            <span className="badge badge-ok">P2P Активно</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {isHost && onAddBot && (
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  style={{ padding: '5px 10px', fontSize: 12 }}
+                  disabled={view.players.length >= view.settings.maxPlayers}
+                  onClick={onAddBot}
+                >
+                  + Бот
+                </button>
+              )}
+              <span className="badge badge-ok">P2P Активно</span>
+            </div>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 10 }}>
@@ -128,10 +154,28 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
               <div
                 key={p.id}
                 className="card-subtle"
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}
               >
-                <span style={{ fontWeight: 600 }}>{p.name}</span>
-                {p.isHost && <span className="badge badge-amber">Хост</span>}
+                <span style={{ fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                  {p.isHost && <span className="badge badge-amber">Хост</span>}
+                  {p.isBot && (
+                    <span className="badge">
+                      🤖 БОТ{p.isEasterEgg ? ' ★' : ''}
+                    </span>
+                  )}
+                  {isHost && p.isBot && onRemoveBot && (
+                    <button
+                      type="button"
+                      className="btn btn-outline"
+                      style={{ padding: '2px 6px', fontSize: 11 }}
+                      aria-label={`Удалить ${p.name}`}
+                      onClick={() => onRemoveBot(p.id)}
+                    >
+                      <X size={12} />
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -238,36 +282,69 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
               </div>
             </div>
 
-            {/* 18+ toggle */}
-            <label
-              className="card-subtle"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: 12,
-                cursor: 'pointer',
-                borderColor: view.settings.enableAdultContent ? 'rgba(239,68,68,0.5)' : undefined,
-              }}
-            >
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 14 }}>🔞 18+ карточки в паке</div>
-                <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                  Добавляет чёрный юмор, жёсткие сюжеты, компромат и 18+ спецкарты во все категории.
+            {/* 18+ toggle & intensity */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <label
+                className="card-subtle"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                  cursor: 'pointer',
+                  borderColor: view.settings.enableAdultContent ? 'rgba(239,68,68,0.5)' : undefined,
+                }}
+              >
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 14 }}>🔞 18+ карточки в паке</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                    Добавляет чёрный юмор, жёсткие сюжеты, компромат и 18+ спецкарты во все категории.
+                  </div>
                 </div>
-              </div>
-              <input
-                type="checkbox"
-                checked={Boolean(view.settings.enableAdultContent)}
-                onChange={(e) =>
-                  onUpdateSettings({
-                    ...view.settings,
-                    enableAdultContent: e.target.checked,
-                  })
-                }
-                style={{ width: 20, height: 20, accentColor: '#ef4444', flexShrink: 0 }}
-              />
-            </label>
+                <input
+                  type="checkbox"
+                  checked={Boolean(view.settings.enableAdultContent)}
+                  onChange={(e) =>
+                    onUpdateSettings({
+                      ...view.settings,
+                      enableAdultContent: e.target.checked,
+                      adultIntensity: view.settings.adultIntensity ?? 'mixed',
+                    })
+                  }
+                  style={{ width: 20, height: 20, accentColor: '#ef4444', flexShrink: 0 }}
+                />
+              </label>
+
+              {view.settings.enableAdultContent && (
+                <div className="card-subtle" style={{ display: 'flex', flexDirection: 'column', gap: 6, borderColor: 'rgba(239,68,68,0.35)' }}>
+                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>Доля 18+ карточек в раздаче:</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {(
+                      [
+                        { id: 'mixed', label: 'Смешанно (обычно)' },
+                        { id: 'high', label: 'Чаще 18+ (×4)' },
+                        { id: 'only', label: 'Приоритет 18+ (максимум)' },
+                      ] as Array<{ id: AdultIntensity; label: string }>
+                    ).map((opt) => {
+                      const active = (view.settings.adultIntensity ?? 'mixed') === opt.id;
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          className={`btn ${active ? 'btn-danger' : 'btn-outline'}`}
+                          style={{ padding: '5px 10px', fontSize: 12 }}
+                          onClick={() =>
+                            onUpdateSettings({ ...view.settings, adultIntensity: opt.id })
+                          }
+                        >
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
 
             {/* Enabled trait categories */}
             <div>
@@ -456,144 +533,193 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
       )}
 
       {/* Pack Inspector Modal */}
-      {inspectPack && (
-        <div className="modal-backdrop" onClick={() => setInspectPack(null)}>
-          <div
-            className="card"
-            style={{
-              width: '100%',
-              maxWidth: 700,
-              maxHeight: '85dvh',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 12,
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <h3 style={{ margin: 0 }}>Состав: {inspectPack.name}</h3>
-                <div style={{ fontSize: 12, color: 'var(--muted)' }}>{inspectPack.description}</div>
-              </div>
-              <button
-                className="btn btn-outline"
-                style={{ padding: 6 }}
-                aria-label="Закрыть инспектор пака"
-                onClick={() => setInspectPack(null)}
-              >
-                <X size={18} />
-              </button>
-            </div>
+      {inspectPack && (() => {
+        const onlyAdult = inspectFilter === 'adult';
+        const catItems = [
+          ...inspectPack.catastrophes.map((c) => ({ item: c, isAdult: Boolean(c.isAdult) })),
+          ...inspectPack.adult.catastrophes.map((c) => ({ item: c, isAdult: true })),
+        ].filter((e) => !onlyAdult || e.isAdult);
 
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              <button
-                className={`badge ${inspectTab === 'catastrophes' ? 'badge-amber' : ''}`}
-                style={{ cursor: 'pointer' }}
-                onClick={() => setInspectTab('catastrophes')}
-              >
-                Катастрофы ({inspectPack.catastrophes.length})
-              </button>
-              <button
-                className={`badge ${inspectTab === 'bunker' ? 'badge-amber' : ''}`}
-                style={{ cursor: 'pointer' }}
-                onClick={() => setInspectTab('bunker')}
-              >
-                Бункеры ({inspectPack.bunkerFeatures.length})
-              </button>
-              <button
-                className={`badge ${inspectTab === 'specials' ? 'badge-amber' : ''}`}
-                style={{ cursor: 'pointer' }}
-                onClick={() => setInspectTab('specials')}
-              >
-                Спецкарты ({SPECIAL_CARD_TEMPLATES.length})
-              </button>
-              {TRAIT_ORDER.map((cat) => (
-                <button
-                  key={cat}
-                  className={`badge ${inspectTab === cat ? 'badge-amber' : ''}`}
-                  style={{ cursor: 'pointer' }}
-                  onClick={() => setInspectTab(cat)}
-                >
-                  {TRAIT_LABELS[cat]} ({inspectPack.traits[cat].length})
-                </button>
-              ))}
-            </div>
+        const bunkerItems = [
+          ...inspectPack.bunkerFeatures.map((b) => ({ item: b, isAdult: Boolean(b.isAdult) })),
+          ...inspectPack.adult.bunkerFeatures.map((b) => ({ item: b, isAdult: true })),
+        ].filter((e) => !onlyAdult || e.isAdult);
 
+        const specialItems = SPECIAL_CARD_TEMPLATES.filter((sc) => !onlyAdult || sc.isAdult);
+
+        const getTraitItems = (cat: typeof TRAIT_ORDER[number]) =>
+          [
+            ...inspectPack.traits[cat].map((val) => ({ val, isAdult: false })),
+            ...inspectPack.adult.traits[cat].map((val) => ({ val, isAdult: true })),
+          ].filter((e) => !onlyAdult || e.isAdult);
+
+        return (
+          <div className="modal-backdrop" onClick={() => setInspectPack(null)}>
             <div
+              className="card"
               style={{
-                overflowY: 'auto',
-                flex: 1,
+                width: '100%',
+                maxWidth: 700,
+                maxHeight: '85dvh',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: 6,
-                padding: 8,
-                background: '#0d131c',
-                borderRadius: 10,
-                border: '1px solid var(--border)',
+                gap: 12,
               }}
+              onClick={(e) => e.stopPropagation()}
             >
-              {inspectTab === 'catastrophes' &&
-                inspectPack.catastrophes.map((c) => (
-                  <div key={c.id} className="card-subtle">
-                    <div style={{ fontWeight: 700, fontSize: 13 }}>{c.title} ({c.duration}, выж. {c.survivalRate})</div>
-                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>{c.description}</div>
-                  </div>
-                ))}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+                <div>
+                  <h3 style={{ margin: 0 }}>Состав: {inspectPack.name}</h3>
+                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>{inspectPack.description}</div>
+                </div>
+                <button
+                  className="btn btn-outline"
+                  style={{ padding: 6 }}
+                  aria-label="Закрыть инспектор пака"
+                  onClick={() => setInspectPack(null)}
+                >
+                  <X size={18} />
+                </button>
+              </div>
 
-              {inspectTab === 'bunker' &&
-                inspectPack.bunkerFeatures.map((b, i) => (
-                  <div key={i} className="card-subtle">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <strong style={{ fontSize: 13 }}>{b.title}</strong>
-                      <span className={`badge ${b.isThreat ? 'badge-danger' : 'badge-ok'}`}>
-                        {b.isThreat ? 'Угроза' : 'Ресурс'}
-                      </span>
-                    </div>
-                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>{b.description}</div>
-                  </div>
-                ))}
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className={`btn ${inspectFilter === 'all' ? 'btn-primary' : 'btn-outline'}`}
+                  style={{ padding: '4px 10px', fontSize: 12 }}
+                  onClick={() => setInspectFilter('all')}
+                >
+                  Все карты
+                </button>
+                <button
+                  type="button"
+                  className={`btn ${inspectFilter === 'adult' ? 'btn-danger' : 'btn-outline'}`}
+                  style={{ padding: '4px 10px', fontSize: 12 }}
+                  onClick={() => setInspectFilter('adult')}
+                >
+                  🔞 Только 18+
+                </button>
+              </div>
 
-              {inspectTab === 'specials' &&
-                SPECIAL_CARD_TEMPLATES.map((sc) => (
-                  <div key={sc.type} className="card-subtle">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                      <strong style={{ fontSize: 13 }}>{sc.title}</strong>
-                      {sc.isAdult && <span className="badge badge-danger">18+</span>}
-                    </div>
-                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>{sc.description}</div>
-                  </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                <button
+                  className={`badge ${inspectTab === 'catastrophes' ? 'badge-amber' : ''}`}
+                  style={{ cursor: 'pointer' }}
+                  onClick={() => setInspectTab('catastrophes')}
+                >
+                  Катастрофы ({catItems.length})
+                </button>
+                <button
+                  className={`badge ${inspectTab === 'bunker' ? 'badge-amber' : ''}`}
+                  style={{ cursor: 'pointer' }}
+                  onClick={() => setInspectTab('bunker')}
+                >
+                  Бункеры ({bunkerItems.length})
+                </button>
+                <button
+                  className={`badge ${inspectTab === 'specials' ? 'badge-amber' : ''}`}
+                  style={{ cursor: 'pointer' }}
+                  onClick={() => setInspectTab('specials')}
+                >
+                  Спецкарты ({specialItems.length})
+                </button>
+                {TRAIT_ORDER.map((cat) => (
+                  <button
+                    key={cat}
+                    className={`badge ${inspectTab === cat ? 'badge-amber' : ''}`}
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => setInspectTab(cat)}
+                  >
+                    {TRAIT_LABELS[cat]} ({getTraitItems(cat).length})
+                  </button>
                 ))}
+              </div>
 
-              {TRAIT_ORDER.includes(inspectTab as typeof TRAIT_ORDER[number]) &&
-                inspectPack.traits[inspectTab as typeof TRAIT_ORDER[number]].map((item, i) => {
-                  const cat = inspectTab as typeof TRAIT_ORDER[number];
-                  const abilityBadge = getAbilityShortBadge(cat, item);
-                  return (
-                    <div
-                      key={i}
-                      className="card-subtle"
-                      style={{
-                        fontSize: 13,
-                        padding: '8px 12px',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        gap: 8,
-                      }}
-                    >
-                      <span>{i + 1}. {item}</span>
-                      {abilityBadge && (
-                        <span className="badge badge-amber" style={{ flexShrink: 0 }}>
-                          {abilityBadge}
-                        </span>
-                      )}
+              <div
+                style={{
+                  overflowY: 'auto',
+                  flex: 1,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 6,
+                  padding: 8,
+                  background: '#0d131c',
+                  borderRadius: 10,
+                  border: '1px solid var(--border)',
+                }}
+              >
+                {inspectTab === 'catastrophes' &&
+                  catItems.map(({ item: c, isAdult }) => (
+                    <div key={c.id} className="card-subtle">
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontWeight: 700, fontSize: 13 }}>{c.title} ({c.duration}, выж. {c.survivalRate})</span>
+                        {isAdult && <span className="badge badge-danger">18+</span>}
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--muted)' }}>{c.description}</div>
                     </div>
-                  );
-                })}
+                  ))}
+
+                {inspectTab === 'bunker' &&
+                  bunkerItems.map(({ item: b, isAdult }, i) => (
+                    <div key={i} className="card-subtle">
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
+                        <strong style={{ fontSize: 13 }}>{b.title}</strong>
+                        <div style={{ display: 'flex', gap: 4 }}>
+                          {isAdult && <span className="badge badge-danger">18+</span>}
+                          <span className={`badge ${b.isThreat ? 'badge-danger' : 'badge-ok'}`}>
+                            {b.isThreat ? 'Угроза' : 'Ресурс'}
+                          </span>
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--muted)' }}>{b.description}</div>
+                    </div>
+                  ))}
+
+                {inspectTab === 'specials' &&
+                  specialItems.map((sc) => (
+                    <div key={sc.type} className="card-subtle">
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                        <strong style={{ fontSize: 13 }}>{sc.title}</strong>
+                        {sc.isAdult && <span className="badge badge-danger">18+</span>}
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--muted)' }}>{sc.description}</div>
+                    </div>
+                  ))}
+
+                {TRAIT_ORDER.includes(inspectTab as typeof TRAIT_ORDER[number]) &&
+                  getTraitItems(inspectTab as typeof TRAIT_ORDER[number]).map(({ val, isAdult }, i) => {
+                    const cat = inspectTab as typeof TRAIT_ORDER[number];
+                    const abilityBadge = getAbilityShortBadge(cat, val);
+                    return (
+                      <div
+                        key={i}
+                        className="card-subtle"
+                        style={{
+                          fontSize: 13,
+                          padding: '8px 12px',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          gap: 8,
+                        }}
+                      >
+                        <span>{i + 1}. {val}</span>
+                        <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                          {isAdult && <span className="badge badge-danger">18+</span>}
+                          {abilityBadge && (
+                            <span className="badge badge-amber">
+                              {abilityBadge}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 };

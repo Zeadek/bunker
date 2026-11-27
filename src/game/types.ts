@@ -1,6 +1,7 @@
 export type TraitCategory =
   | 'profession'
   | 'biology'
+  | 'physiology'
   | 'health'
   | 'hobby'
   | 'gear'
@@ -12,6 +13,7 @@ export type TraitCategory =
 export const TRAIT_LABELS: Record<TraitCategory, string> = {
   profession: 'Профессия',
   biology: 'Биология',
+  physiology: 'Физиология',
   health: 'Здоровье',
   hobby: 'Хобби',
   gear: 'Крупный багаж',
@@ -24,6 +26,7 @@ export const TRAIT_LABELS: Record<TraitCategory, string> = {
 export const TRAIT_ORDER: TraitCategory[] = [
   'profession',
   'biology',
+  'physiology',
   'health',
   'hobby',
   'gear',
@@ -95,7 +98,13 @@ export type SpecialCardType =
   | 'clone_trait'
   | 'cursed_truth'
   | 'russian_roulette'
-  | 'bribe_bunker';
+  | 'bribe_bunker'
+  | 'truth_or_dare'
+  | 'dark_deal'
+  | 'organ_harvest'
+  | 'expand_bunker'
+  | 'shrink_bunker'
+  | 'revive_exiled';
 
 export interface SpecialCard {
   id: string;
@@ -106,6 +115,7 @@ export interface SpecialCard {
   isAdult?: boolean;
   needsTargetPlayer?: boolean;
   allowSelfTarget?: boolean;
+  allowDeadTarget?: boolean;
   needsTraitCategory?: boolean;
 }
 
@@ -113,6 +123,8 @@ export interface Player {
   id: string;
   name: string;
   isHost: boolean;
+  isBot?: boolean;
+  isEasterEgg?: boolean;
   connected: boolean;
   alive: boolean;
   traits: Record<TraitCategory, TraitCard>;
@@ -128,6 +140,8 @@ export interface PublicPlayer {
   id: string;
   name: string;
   isHost: boolean;
+  isBot?: boolean;
+  isEasterEgg?: boolean;
   connected: boolean;
   alive: boolean;
   revealedTraits: Partial<Record<TraitCategory, string>>;
@@ -163,10 +177,31 @@ export interface BunkerCard {
   revealed: boolean;
 }
 
+export type BunkerRoomStatus = 'ok' | 'damaged' | 'locked';
+
+export interface BunkerRoom {
+  id: string;
+  name: string;
+  status: BunkerRoomStatus;
+  effect: string;
+}
+
+export interface BunkerStats {
+  energy: number;
+  supplies: number;
+  defense: number;
+  morale: number;
+}
+
 export interface BunkerInfo {
+  title: string;
+  location: string;
+  layoutNote: string;
   areaSqm: number;
   capacity: number;
   supplies: string;
+  rooms: BunkerRoom[];
+  stats: BunkerStats;
   cards: BunkerCard[];
 }
 
@@ -201,9 +236,12 @@ export interface CustomFieldDef {
   pool: string[];
 }
 
+export type AdultIntensity = 'mixed' | 'high' | 'only';
+
 export interface GameSettings {
   packs: PackId[];
   enableAdultContent: boolean;
+  adultIntensity?: AdultIntensity;
   enabledTraits: TraitCategory[];
   customFields: CustomFieldDef[];
   specialCardsPerPlayer: number;
@@ -282,12 +320,7 @@ export interface PlayerView {
   currentTurnPlayerId: string | null;
   phaseEndsAt: number | null;
   catastrophe: Catastrophe | null;
-  bunker: {
-    areaSqm: number;
-    capacity: number;
-    supplies: string;
-    cards: Array<{ id: string; title: string; description: string; isThreat: boolean; revealed: boolean }>;
-  } | null;
+  bunker: BunkerInfo | null;
   votedPlayerIds: string[];
   myVote: string | null;
   tiedCandidates: string[];

@@ -1,4 +1,5 @@
 import {
+  AdultIntensity,
   GamePack,
   PackContentBlock,
   PackId,
@@ -263,6 +264,18 @@ export const CLASSIC_PACK: GamePack = {
     biology: [
       'Мужчина',
       'Женщина',
+    ],
+    physiology: [
+      '182 см, крепкое спортивное телосложение',
+      '166 см, среднее телосложение, отличная выносливость',
+      '190 см, высокий, крупный, огромная физическая сила',
+      '160 см, миниатюрное, пролезет в любую вентиляцию',
+      '176 см, худощавый, но очень быстрый и ловкий',
+      '172 см, плотное телосложение, высокий болевой порог',
+      '168 см, хрупкое телосложение, слабый хват',
+      '185 см, атлет, отличная координация движений',
+      '175 см, лишний вес (112 кг), но крепкие нервы',
+      '163 см, жилистая, легко переносит холод и голод',
     ],
     health: [
       'Полностью здоров',
@@ -604,6 +617,16 @@ export const FANTASY_PACK: GamePack = {
       'Человек-северянин (женщина)',
       'Фея-пикси (женщина)',
     ],
+    physiology: [
+      '205 см, массивная бронебойная мускулатура',
+      '140 см, приземистый, но держит удар кувалды',
+      '184 см, грациозный, бесшумная походка',
+      '170 см, жилистое тело, ночное зрение',
+      '158 см, хрупкое сложение, высокая ловкость',
+      '192 см, мощные когти и высокий болевой порог',
+      '178 см, быстрая регенерация мелких ран',
+      '165 см, плотный, отлично переносит сырость пещер',
+    ],
     health: [
       'Полностью здоров',
       'Абсолютно здоров',
@@ -745,14 +768,40 @@ export const ALL_PACKS: Record<PackId, GamePack> = {
 
 export function mergePacks(
   packIds: PackId[],
-  enableAdultContent = false
+  enableAdultContent = false,
+  adultIntensity: AdultIntensity = 'mixed'
 ): PackContentBlock {
   const validIds: PackId[] = packIds.filter((id) => Boolean(ALL_PACKS[id]));
   const active = validIds.length > 0 ? validIds.map((id) => ALL_PACKS[id]) : [CLASSIC_PACK];
 
-  const blocks: PackContentBlock[] = active.flatMap((p) =>
-    enableAdultContent ? [p, p.adult] : [p]
-  );
+  if (enableAdultContent && adultIntensity === 'only') {
+    const traits = {} as Record<TraitCategory, string[]>;
+    for (const cat of TRAIT_ORDER) {
+      traits[cat] = active.flatMap((p) =>
+        p.adult.traits[cat].length > 0 ? p.adult.traits[cat] : p.traits[cat]
+      );
+    }
+    return {
+      catastrophes: active.flatMap((p) =>
+        p.adult.catastrophes.length > 0 ? p.adult.catastrophes : p.catastrophes
+      ),
+      bunkerFeatures: active.flatMap((p) =>
+        p.adult.bunkerFeatures.length > 0 ? p.adult.bunkerFeatures : p.bunkerFeatures
+      ),
+      supplies: active.flatMap((p) =>
+        p.adult.supplies.length > 0 ? p.adult.supplies : p.supplies
+      ),
+      traits,
+    };
+  }
+
+  const blocks: PackContentBlock[] = active.flatMap((p) => {
+    if (!enableAdultContent) return [p];
+    if (adultIntensity === 'high') {
+      return [p, p.adult, p.adult, p.adult, p.adult];
+    }
+    return [p, p.adult];
+  });
 
   const traits = {} as Record<TraitCategory, string[]>;
   for (const cat of TRAIT_ORDER) {
@@ -767,6 +816,21 @@ export function mergePacks(
   };
 }
 
-export function getSpecialCardPool(enableAdultContent = false) {
-  return SPECIAL_CARD_TEMPLATES.filter((tpl) => enableAdultContent || !tpl.isAdult);
+export function getSpecialCardPool(
+  enableAdultContent = false,
+  adultIntensity: AdultIntensity = 'mixed'
+) {
+  if (!enableAdultContent) {
+    return SPECIAL_CARD_TEMPLATES.filter((tpl) => !tpl.isAdult);
+  }
+  if (adultIntensity === 'only') {
+    const adultOnly = SPECIAL_CARD_TEMPLATES.filter((tpl) => tpl.isAdult);
+    return adultOnly.length > 0 ? adultOnly : SPECIAL_CARD_TEMPLATES;
+  }
+  if (adultIntensity === 'high') {
+    const base = SPECIAL_CARD_TEMPLATES.filter((tpl) => !tpl.isAdult);
+    const adult = SPECIAL_CARD_TEMPLATES.filter((tpl) => tpl.isAdult);
+    return [...base, ...adult, ...adult, ...adult, ...adult];
+  }
+  return SPECIAL_CARD_TEMPLATES;
 }

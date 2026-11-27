@@ -9,6 +9,7 @@ import {
 import { GameState } from './types';
 import {
   SKIP_VOTE_ID,
+  addBotPlayer,
   addOrReconnectPlayer,
   castVote,
   computeKicksSchedule,
@@ -18,14 +19,17 @@ import {
   hostRerollPlayerTrait,
   hostUpdatePlayerTrait,
   proceedAfterRoundResult,
+  removeBotPlayer,
   revealBonusTrait,
   revealTrait,
+  runBotTurn,
   startGame,
   startRevealPhase,
   startVotingPhase,
   useSpecialCard,
   useTraitAbility,
 } from './engine';
+import { scorePlayer, scoreTraitCard } from './scoring';
 
 describe('Bunker game engine', () => {
   it('computes kicks schedule matching playerCount - capacity', () => {
@@ -159,7 +163,16 @@ describe('Bunker game engine', () => {
     const adultSpecials = getSpecialCardPool(true);
     expect(safeSpecials.some((s) => s.isAdult)).toBe(false);
     expect(adultSpecials.some((s) => s.isAdult)).toBe(true);
-    expect(adultSpecials.length).toBe(22);
+    expect(adultSpecials.length).toBe(28);
+
+    const onlyAdultMerged = mergePacks(['classic'], true, 'only');
+    expect(onlyAdultMerged.catastrophes.every((c) => c.isAdult)).toBe(true);
+    const onlyAdultSpecials = getSpecialCardPool(true, 'only');
+    expect(onlyAdultSpecials.every((s) => s.isAdult)).toBe(true);
+    expect(onlyAdultSpecials.length).toBe(6);
+
+    const highAdultSpecials = getSpecialCardPool(true, 'high');
+    expect(highAdultSpecials.length).toBeGreaterThan(adultSpecials.length);
   });
 
   it('supports enabledTraits, customFields, bonusTraits, revealBonusTrait, and specialCardsPerPlayer', () => {
@@ -326,7 +339,7 @@ describe('Bunker game engine', () => {
     expect(resultView.lastRoundResult?.voteDetails).toEqual([
       { voterId: 'p1', voterName: 'Алиса', targetId: 'p3', targetName: 'Вика', weight: 1 },
       { voterId: 'p2', voterName: 'Боб', targetId: 'p3', targetName: 'Вика', weight: 1 },
-      { voterId: 'p3', voterName: 'Вика', targetId: SKIP_VOTE_ID, targetName: 'Воздержался', weight: 1 },
+      { voterId: 'p3', voterName: 'Вика', targetId: SKIP_VOTE_ID, targetName: 'Скипнуть раунд', weight: 1 },
     ]);
   });
 
@@ -340,9 +353,17 @@ describe('Bunker game engine', () => {
         survivalRate: '12%',
       },
       bunker: {
-        areaSqm: 110,
+        title: 'Советский объект ГО-42',
+        location: 'В толще гранитной скалы',
+        layoutNote: 'Толстые гермодвери и длинный коридор.',
+        areaSqm: 140,
         capacity: 2,
         supplies: 'Консервы на 100% срока',
+        rooms: [
+          { id: 'r1', name: 'Генераторная', status: 'ok' as const, effect: 'Даёт энергию.' },
+          { id: 'r2', name: 'Медблок', status: 'ok' as const, effect: 'Лечит раненых.' },
+        ],
+        stats: { energy: 75, supplies: 80, defense: 70, morale: 75 },
         cards: [
           {
             id: 'b1',
@@ -411,6 +432,11 @@ describe('Bunker game engine', () => {
       bunker: {
         ...strongView.bunker,
         supplies: 'Острый дефицит воды и еды',
+        rooms: [
+          { id: 'r1', name: 'Генераторная', status: 'damaged' as const, effect: 'Даёт энергию.' },
+          { id: 'r2', name: 'Шлюз', status: 'locked' as const, effect: 'Оборона.' },
+        ],
+        stats: { energy: 25, supplies: 20, defense: 30, morale: 30 },
         cards: [
           {
             id: 'b2',
@@ -453,5 +479,215 @@ describe('Bunker game engine', () => {
     expect(weakEval.title).toBe('Бункер пал');
     expect(weakEval.unresolvedIssues.length).toBeGreaterThanOrEqual(4);
     expect(weakEval.score).toBeLessThan(40);
+  });
+
+  it('generates rich BunkerInfo with rooms and stats, and updates them on sabotage and repair', () => {
+    let state = createInitialState('BNK1', 'p1', 'Инженер');
+    state = addOrReconnectPlayer(state, 'p2', 'Диверсант').state;
+    state = startGame(state).state;
+
+    const b = state.bunker!;
+    expect(b.title.length).toBeGreaterThan(0);
+    expect(b.location.length).toBeGreaterThan(0);
+    expect(b.layoutNote.length).toBeGreaterThan(0);
+    expect(b.areaSqm).toBeGreaterThanOrEqual(35);
+    expect(b.areaSqm).toBeLessThanOrEqual(340);
+    expect(b.rooms.length).toBeGreaterThanOrEqual(3);
+    expect(b.rooms.length).toBeLessThanOrEqual(5);
+    expect(b.stats.energy).toBeGreaterThanOrEqual(0);
+    expect(b.stats.energy).toBeLessThanOrEqual(100);
+
+    // Sabotage damages an ok room and reduces defense/morale
+    const sabotage = createSpecialCard('sabotage_bunker', 'sc-sab2');
+    state = {
+      ...state,
+      players: state.players.map((p) =>
+        p.id === 'p2' ? { ...p, specialCards: [sabotage] } : p
+      ),
+    };
+    const defenseBeforeSab = state.bunker!.stats.defense;
+    const sabRes = useSpecialCard(state, 'p2', 'sc-sab2');
+    expect(sabRes.error).toBeUndefined();
+    expect(sabRes.state.bunker!.stats.defense).toBeLessThan(defenseBeforeSab);
+
+    // Repair ability fixes a threat and/or broken room and raises stats
+    state = hostUpdatePlayerTrait(sabRes.state, 'p1', 'profession', 'Инженер-энергетик (Мастер)', true);
+    const brokenBefore = state.bunker!.rooms.filter((r) => r.status !== 'ok').length;
+    const energyBefore = state.bunker!.stats.energy;
+    const repRes = useTraitAbility(state, 'p1', 'profession');
+    expect(repRes.error).toBeUndefined();
+    const brokenAfter = repRes.state.bunker!.rooms.filter((r) => r.status !== 'ok').length;
+    expect(brokenAfter).toBeLessThan(brokenBefore);
+    expect(repRes.state.bunker!.stats.energy).toBeGreaterThan(energyBefore);
+  });
+
+  it('scores trait cards with tags and evaluates players in scoring.ts', () => {
+    const surgeon = scoreTraitCard('profession', 'Хирург-травматолог (Эксперт)');
+    expect(surgeon.tags).toContain('med');
+    expect(surgeon.score).toBeGreaterThanOrEqual(10);
+
+    const sick = scoreTraitCard('health', 'Пневмония [Тяжёлая стадия]');
+    expect(sick.tags).toContain('liability');
+    expect(sick.score).toBeLessThan(0);
+
+    const healthy = scoreTraitCard('health', 'Полностью здоров');
+    expect(healthy.tags).toContain('survival');
+    expect(healthy.score).toBeGreaterThan(0);
+
+    let state = createInitialState('SCR1', 'p1', 'Алиса');
+    state = startGame(state).state;
+    const fullScore = scorePlayer(state.players[0], false);
+    const revealedOnlyScore = scorePlayer(state.players[0], true);
+    expect(typeof fullScore).toBe('number');
+    expect(revealedOnlyScore).toBe(0);
+  });
+
+  it('supports adding/removing AI bots and running bot reveal and voting turns', () => {
+    let state = createInitialState('BOT1', 'p1', 'Хост');
+    const b1Res = addBotPlayer(state);
+    expect(b1Res.error).toBeUndefined();
+    state = b1Res.state;
+    state = addBotPlayer(state).state;
+    state = addBotPlayer(state).state;
+    expect(state.players.filter((p) => p.isBot)).toHaveLength(3);
+
+    const removedId = state.players.find((p) => p.isBot)!.id;
+    state = removeBotPlayer(state, removedId);
+    expect(state.players.filter((p) => p.isBot)).toHaveLength(2);
+
+    state = startGame(state).state;
+    state = startRevealPhase(state);
+
+    // Run turns until human p1 or discussion
+    let guard = 0;
+    while (state.phase === 'reveal' && guard < 10) {
+      const turnId = state.turnOrder[state.currentTurnIndex];
+      const turnPlayer = state.players.find((p) => p.id === turnId)!;
+      if (turnPlayer.isBot) {
+        const res = runBotTurn(state);
+        expect(res.acted).toBe(true);
+        state = res.state;
+      } else {
+        state = revealTrait(state, turnPlayer.id, 'profession').state;
+      }
+      guard++;
+    }
+    expect(state.phase).toBe('discussion');
+
+    // Make p1 have terrible revealed health so bots vote against p1
+    state = { ...state, round: 2, kicksPerRound: [0, 1] };
+    state = hostUpdatePlayerTrait(state, 'p1', 'health', 'Пневмония [Тяжёлая стадия]', true);
+    const bots = state.players.filter((p) => p.isBot);
+    state = hostUpdatePlayerTrait(state, bots[0].id, 'health', 'Полностью здоров', true);
+    state = hostUpdatePlayerTrait(state, bots[1].id, 'health', 'Полностью здоров', true);
+
+    state = startVotingPhase(state);
+    state = runBotTurn(state).state;
+    state = runBotTurn(state).state;
+    // Bots voted, p1 still needs to vote
+    expect(Object.keys(state.votes)).toHaveLength(2);
+  });
+
+  it('skips round on a tie without exiling any random player, and continues until alive <= capacity', () => {
+    let state = createInitialState('TIE1', 'p1', 'Алиса');
+    state = addOrReconnectPlayer(state, 'p2', 'Боб').state;
+    state = addOrReconnectPlayer(state, 'p3', 'Вика').state;
+    state = addOrReconnectPlayer(state, 'p4', 'Глеб').state;
+    state = startGame(state).state;
+
+    // 4 players, capacity 2 -> kicksPerRound = [0, 1, 1] (never 2+ per round)
+    expect(state.kicksPerRound).toEqual([0, 1, 1]);
+
+    // Round 2 tie: p1->p2, p2->p1, p3->p4, p4->p3 (2 votes? No, 1 vote each for 4 players)
+    state = { ...state, round: 2 };
+    state = startVotingPhase(state);
+    state = castVote(state, 'p1', 'p2').state;
+    state = castVote(state, 'p2', 'p1').state;
+    state = castVote(state, 'p3', 'p4').state;
+    state = castVote(state, 'p4', 'p3').state;
+
+    expect(state.phase).toBe('round_result');
+    expect(state.lastRoundResult?.wasTie).toBe(true);
+    expect(state.lastRoundResult?.exiledIds).toEqual([]);
+    expect(state.players.filter((p) => p.alive)).toHaveLength(4);
+
+    // Proceeding after skipped round continues game (does not end prematurely)
+    state = proceedAfterRoundResult(state, true);
+    expect(state.phase).toBe('reveal');
+    expect(state.round).toBe(3);
+  });
+
+  it('supports Easter-egg bots and 3 new special cards (expand_bunker, shrink_bunker, revive_exiled)', () => {
+    let state = createInitialState('EGG1', 'p1', 'Хост');
+    state = addBotPlayer(state, true).state;
+    state = addOrReconnectPlayer(state, 'p2', 'Боб').state;
+    const eggBot = state.players.find((p) => p.isEasterEgg);
+    expect(eggBot).toBeDefined();
+    expect(eggBot?.isBot).toBe(true);
+
+    state = startGame(state).state;
+    const view = getPlayerView(state, 'p1');
+    expect(view.players.find((p) => p.id === eggBot!.id)?.isEasterEgg).toBe(true);
+
+    const initialCap = state.bunker!.capacity;
+    const expand = createSpecialCard('expand_bunker', 'sc-exp');
+    const shrink = createSpecialCard('shrink_bunker', 'sc-shr');
+    const revive = createSpecialCard('revive_exiled', 'sc-rev');
+
+    state = {
+      ...state,
+      players: state.players.map((p) => {
+        if (p.id === 'p1') return { ...p, specialCards: [expand, shrink, revive] };
+        if (p.id === 'p2') return { ...p, alive: false };
+        return p;
+      }),
+    };
+
+    const expRes = useSpecialCard(state, 'p1', 'sc-exp');
+    expect(expRes.error).toBeUndefined();
+    expect(expRes.state.bunker!.capacity).toBe(initialCap + 1);
+
+    const shrRes = useSpecialCard(expRes.state, 'p1', 'sc-shr');
+    expect(shrRes.error).toBeUndefined();
+    expect(shrRes.state.bunker!.capacity).toBe(initialCap);
+
+    const revRes = useSpecialCard(shrRes.state, 'p1', 'sc-rev', 'p2');
+    expect(revRes.error).toBeUndefined();
+    expect(revRes.state.players.find((p) => p.id === 'p2')?.alive).toBe(true);
+  });
+
+  it('includes separate physiology category and guarantees fertile players on startGame', () => {
+    const strongPhys = scoreTraitCard('physiology', '185 см, атлет, высокий болевой порог');
+    expect(strongPhys.tags).toContain('survival');
+    expect(strongPhys.score).toBeGreaterThan(1);
+
+    for (let run = 0; run < 5; run++) {
+      let state = createInitialState(`FERT${run}`, 'p1', 'Игрок 1');
+      state = addOrReconnectPlayer(state, 'p2', 'Игрок 2').state;
+      state = addOrReconnectPlayer(state, 'p3', 'Игрок 3').state;
+      state = addOrReconnectPlayer(state, 'p4', 'Игрок 4').state;
+
+      const started = startGame(state);
+      expect(started.error).toBeUndefined();
+      const players = started.state.players;
+
+      // Every player has a rolled physiology trait
+      for (const p of players) {
+        expect(p.traits.physiology.value).toBeTruthy();
+        expect(p.traits.physiology.value).not.toBe('—');
+      }
+
+      // At least 1 fertile female and 1 fertile male when >= 4 players
+      const hasFertileFemale = players.some((p) => {
+        const b = p.traits.biology.value.toLowerCase();
+        return b.includes('женщина') && (b.includes('плодовит') || b.includes('беременна'));
+      });
+      const hasFertileMale = players.some((p) => {
+        const b = p.traits.biology.value.toLowerCase();
+        return !b.includes('женщина') && b.includes('плодовит');
+      });
+      expect(hasFertileFemale).toBe(true);
+      expect(hasFertileMale).toBe(true);
+    }
   });
 });

@@ -126,7 +126,7 @@ export const SPECIAL_CARD_TEMPLATES: Array<Omit<SpecialCard, 'id' | 'used'>> = [
   {
     type: 'cursed_truth',
     title: 'Сыворотка пьяной правды',
-    description: '18+: Вскрывает до 2 скрытых карт цели И добавляет ей жёсткий компромат в доп. поле!',
+    description: '18+: Подливает цели ядерный коктейль — вскрывает до 2 её скрытых карт и дописывает в досье позорный компромат!',
     isAdult: true,
     needsTargetPlayer: true,
     allowSelfTarget: false,
@@ -134,16 +134,56 @@ export const SPECIAL_CARD_TEMPLATES: Array<Omit<SpecialCard, 'id' | 'used'>> = [
   {
     type: 'russian_roulette',
     title: 'Русская рулетка',
-    description: '18+: 50% шанс получить неприкосновенность на раунд или 50% шанс прострелить себе колено.',
+    description: '18+: Крутите барабан на удачу: 50% шанс сорвать неприкосновенность на раунд или 50% прострелить себе колено.',
     isAdult: true,
   },
   {
     type: 'bribe_bunker',
     title: 'Грязный шантаж',
-    description: '18+: Отнимает голос у выбранного игрока и передаёт его в вес вашего голоса!',
+    description: '18+: Достаёт фото с корпоратива! Цель в ужасе молчит на голосовании, а её голос переходит к вам.',
     isAdult: true,
     needsTargetPlayer: true,
     allowSelfTarget: false,
+  },
+  {
+    type: 'truth_or_dare',
+    title: 'Правда или позор',
+    description: '18+: Цель обязана немедленно вскрыть случайную скрытую карту; если вскрывать нечего — она теряет голос в этом раунде!',
+    isAdult: true,
+    needsTargetPlayer: true,
+    allowSelfTarget: false,
+  },
+  {
+    type: 'dark_deal',
+    title: 'Кровавый бартер',
+    description: '18+: Вы получаете +1 к весу голоса на голосовании, но расплачиваетесь лёгким ранением («Кровавая клятва»).',
+    isAdult: true,
+  },
+  {
+    type: 'organ_harvest',
+    title: 'Чёрная трансплантология',
+    description: '18+: Ночная операция по-чёрному! Вы становитесь «Полностью здоров», а выбранный донор получает осложнение на 1 стадию.',
+    isAdult: true,
+    needsTargetPlayer: true,
+    allowSelfTarget: false,
+  },
+  {
+    type: 'expand_bunker',
+    title: 'Пристройка отсека',
+    description: 'Расширяет бункер: добавляет +1 дополнительное место для выживших!',
+  },
+  {
+    type: 'shrink_bunker',
+    title: 'Обвал секции',
+    description: 'Часть коридора обрушилась: уменьшает вместимость бункера на 1 место (минимум 1).',
+  },
+  {
+    type: 'revive_exiled',
+    title: 'Амнистия',
+    description: 'Возвращает одного ранее изгнанного игрока обратно в бункер (снова в игре)!',
+    needsTargetPlayer: true,
+    allowSelfTarget: false,
+    allowDeadTarget: true,
   },
 ];
 

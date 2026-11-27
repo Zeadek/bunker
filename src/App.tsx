@@ -3,6 +3,7 @@ import { HomeScreen } from './components/HomeScreen';
 import { LobbyScreen } from './components/LobbyScreen';
 import { GameScreen } from './components/GameScreen';
 import {
+  addBotPlayer,
   addChatMessage,
   addOrReconnectPlayer,
   castVote,
@@ -14,9 +15,11 @@ import {
   hostUpdateBonusTrait,
   hostUpdatePlayerTrait,
   proceedAfterRoundResult,
+  removeBotPlayer,
   resolveVotes,
   revealBonusTrait,
   revealTrait,
+  runBotTurn,
   startDiscussionPhase,
   startGame,
   startRevealPhase,
@@ -186,6 +189,26 @@ export function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!isHost || !hostStateRef.current) return;
+    if (view?.phase !== 'reveal' && view?.phase !== 'voting') return;
+    const cur = hostStateRef.current;
+    const hasPendingBot =
+      cur.phase === 'reveal'
+        ? Boolean(cur.players.find((p) => p.id === cur.turnOrder[cur.currentTurnIndex] && p.isBot && p.alive))
+        : Boolean(cur.players.find((p) => p.isBot && p.alive && p.voteWeight > 0 && cur.votes[p.id] === undefined));
+    if (!hasPendingBot) return;
+
+    const timer = setTimeout(() => {
+      if (!hostStateRef.current) return;
+      const res = runBotTurn(hostStateRef.current);
+      if (res.acted) {
+        syncAllViews(res.state);
+      }
+    }, 700);
+    return () => clearTimeout(timer);
+  }, [isHost, view?.phase, view?.currentTurnPlayerId, view?.votedPlayerIds.length, syncAllViews]);
+
   const createRoom = (name: string) => {
     localStorage.setItem('bunker_p2p_name', name);
     setSavedName(name);
@@ -312,6 +335,16 @@ export function App() {
           if (hostStateRef.current) {
             syncAllViews({ ...hostStateRef.current, settings });
           }
+        }}
+        onAddBot={() => {
+          if (!hostStateRef.current) return;
+          const res = addBotPlayer(hostStateRef.current);
+          if (res.error) setErrorText(res.error);
+          else syncAllViews(res.state);
+        }}
+        onRemoveBot={(botId) => {
+          if (!hostStateRef.current) return;
+          syncAllViews(removeBotPlayer(hostStateRef.current, botId));
         }}
         onStartGame={() => {
           if (!hostStateRef.current) return;

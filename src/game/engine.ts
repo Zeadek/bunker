@@ -4,6 +4,12 @@ import {
   getTraitAbility,
   isHealthyStatus,
 } from './abilities';
+import { scorePlayer, scoreTraitCard } from './scoring';
+import {
+  BUNKER_ARCHETYPES,
+  BUNKER_LOCATIONS,
+  BUNKER_ROOM_TEMPLATES,
+} from './bunkerData';
 import {
   ALL_PACKS,
   DISEASE_STAGES,
@@ -15,6 +21,10 @@ import {
 import {
   BonusTrait,
   BunkerCard,
+  BunkerInfo,
+  BunkerRoom,
+  BunkerRoomStatus,
+  BunkerStats,
   ChatMessage,
   GameState,
   Player,
@@ -72,6 +82,7 @@ export function createInitialState(
       settings: {
         packs: ['classic'],
         enableAdultContent: false,
+        adultIntensity: 'mixed',
         enabledTraits: [...TRAIT_ORDER],
         customFields: [],
         specialCardsPerPlayer: 2,
@@ -96,7 +107,13 @@ export function createInitialState(
   );
 }
 
-function createEmptyPlayer(id: string, name: string, isHost: boolean): Player {
+function createEmptyPlayer(
+  id: string,
+  name: string,
+  isHost: boolean,
+  isBot = false,
+  isEasterEgg = false
+): Player {
   const traits = {} as Record<TraitCategory, TraitCard>;
   for (const cat of TRAIT_ORDER) {
     traits[cat] = { category: cat, value: '—', revealed: false };
@@ -105,6 +122,8 @@ function createEmptyPlayer(id: string, name: string, isHost: boolean): Player {
     id,
     name: name.trim() || 'Выживший',
     isHost,
+    isBot,
+    isEasterEgg,
     connected: true,
     alive: true,
     traits,
@@ -115,6 +134,123 @@ function createEmptyPlayer(id: string, name: string, isHost: boolean): Player {
     hasImmunity: false,
     voteWeight: 1,
   };
+}
+
+const BOT_NAMES = [
+  'Бот Макс',
+  'Бот Ева',
+  'Бот Олежа',
+  'Бот Кира',
+  'Бот Глеб',
+  'Бот Зоя',
+  'Бот Витя',
+  'Бот Лиза',
+  'Бот Артур',
+  'Бот Ника',
+  'Бот Тимур',
+  'Бот Дина',
+];
+
+const EASTER_EGG_BOTS: Array<{
+  name: string;
+  traits: Partial<Record<TraitCategory, string>>;
+}> = [
+  {
+    name: 'Бот Ягами',
+    traits: {
+      profession: 'Юрист по корпоративному праву (Мастер)',
+      pocket: 'Тетрадь смерти (чёрная обложка и ручка)',
+      fact: 'Никогда не прощает врагов и записывает их имена',
+      phobia: 'Боязнь потерять контроль',
+    },
+  },
+  {
+    name: 'Бот Уайт',
+    traits: {
+      profession: 'Учитель биологии и химии (Эксперт)',
+      health: 'Онкология [Тяжёлая стадия]',
+      gear: 'Чемодан с синим кристаллом высокой чистоты',
+      fact: 'Сварил нечто легендарное в старом фургоне',
+    },
+  },
+  {
+    name: 'Бот Рик',
+    traits: {
+      profession: 'Физик-ядерщик (Эксперт)',
+      pocket: 'Портальная пушка (осталось 2 заряда)',
+      hobby: 'Пивоварение и дистилляция',
+      fact: 'Считает вселенную бесконечной шуткой',
+    },
+  },
+  {
+    name: 'Бот Геральт',
+    traits: {
+      profession: 'Ведьмак (школа Волка) (Мастер)',
+      gear: 'Два клинка — стальной и серебряный',
+      phobia: 'Ненавидит порталы и телепорты',
+      fact: 'Ворчит, но всегда спасает отряд от тварей',
+    },
+  },
+  {
+    name: 'Бот Тони',
+    traits: {
+      profession: 'Инженер-энергетик (Эксперт)',
+      health: 'Реактор в груди (требует подзарядки) [Лёгкая стадия]',
+      gear: 'Кейс с нано-бронёй и сваркой',
+      fact: 'Гений, миллиардер, плейбой, филантроп',
+    },
+  },
+];
+
+export function addBotPlayer(
+  state: GameState,
+  forceEasterEgg?: boolean
+): { state: GameState; error?: string } {
+  if (state.phase !== 'lobby') {
+    return { state, error: 'Добавлять ботов можно только в лобби.' };
+  }
+  if (state.players.length >= state.settings.maxPlayers) {
+    return { state, error: 'Комната заполнена.' };
+  }
+  const usedNames = new Set(state.players.map((p) => p.name));
+
+  const shouldSpawnEgg =
+    forceEasterEgg === true || (forceEasterEgg !== false && Math.random() < 0.05);
+  const availableEggs = EASTER_EGG_BOTS.filter((e) => !usedNames.has(e.name));
+
+  if (shouldSpawnEgg && availableEggs.length > 0) {
+    const egg = availableEggs[Math.floor(Math.random() * availableEggs.length)];
+    const bot = createEmptyPlayer(uid('bot'), egg.name, false, true, true);
+    for (const [cat, val] of Object.entries(egg.traits) as Array<[TraitCategory, string]>) {
+      bot.traits[cat] = { category: cat, value: val, revealed: false };
+    }
+    return {
+      state: addSystemChat(
+        { ...state, players: [...state.players, bot] },
+        `★ Редкий гость ${egg.name} добавлен в лобби!`
+      ),
+    };
+  }
+
+  const botName =
+    BOT_NAMES.find((n) => !usedNames.has(n)) ?? `Бот #${state.players.length + 1}`;
+  const bot = createEmptyPlayer(uid('bot'), botName, false, true, false);
+  return {
+    state: addSystemChat(
+      { ...state, players: [...state.players, bot] },
+      `${botName} добавлен в лобби.`
+    ),
+  };
+}
+
+export function removeBotPlayer(state: GameState, botId: string): GameState {
+  if (state.phase !== 'lobby') return state;
+  const target = state.players.find((p) => p.id === botId && p.isBot);
+  if (!target) return state;
+  return addSystemChat(
+    { ...state, players: state.players.filter((p) => p.id !== botId) },
+    `${target.name} удалён из лобби.`
+  );
 }
 
 export function addOrReconnectPlayer(
@@ -181,21 +317,70 @@ export function computeKicksSchedule(playerCount: number, capacity: number): num
   const totalKicks = Math.max(0, playerCount - capacity);
   if (totalKicks === 0) return [0];
 
-  if (totalKicks <= 4) {
-    // Round 1 is orientation (0 kicks), then 1 kick per round
-    return [0, ...Array(totalKicks).fill(1)];
-  }
-
-  const rounds = 5;
-  const schedule = Array(rounds).fill(0);
-  for (let i = 0; i < totalKicks; i++) {
-    schedule[i % rounds] += 1;
-  }
-  return schedule;
+  // Round 1 is orientation (0 kicks), then at most 1 kick per round
+  return [0, ...Array(totalKicks).fill(1)];
 }
 
 function randInt(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function clampStat(val: number): number {
+  return Math.max(0, Math.min(100, Math.round(val)));
+}
+
+function adjustBunkerStats(bunker: BunkerInfo, delta: Partial<BunkerStats>): BunkerInfo {
+  return {
+    ...bunker,
+    stats: {
+      energy: clampStat(bunker.stats.energy + (delta.energy ?? 0)),
+      supplies: clampStat(bunker.stats.supplies + (delta.supplies ?? 0)),
+      defense: clampStat(bunker.stats.defense + (delta.defense ?? 0)),
+      morale: clampStat(bunker.stats.morale + (delta.morale ?? 0)),
+    },
+  };
+}
+
+function applyBunkerCardEffect(bunker: BunkerInfo, card: BunkerCard): BunkerInfo {
+  const lower = `${card.title} ${card.description}`.toLowerCase();
+  if (card.isThreat) {
+    const delta: Partial<BunkerStats> = {};
+    if (['генератор', 'вентиляц', 'провод', 'маг', 'руна', 'портал'].some((k) => lower.includes(k))) {
+      delta.energy = -12;
+    }
+    if (['крыс', 'вод', 'резервуар', 'ед', 'припас', 'спирт', 'метанол'].some((k) => lower.includes(k))) {
+      delta.supplies = -12;
+    }
+    if (['двер', 'затвор', 'маяк', 'паук', 'голем', 'пёс', 'инкуб', 'камер'].some((k) => lower.includes(k))) {
+      delta.defense = -12;
+    }
+    if (['плесень', 'призрак', 'труп', 'зеркал', 'формалин', 'шум'].some((k) => lower.includes(k))) {
+      delta.morale = -12;
+    }
+    if (Object.keys(delta).length === 0) {
+      delta.defense = -10;
+      delta.morale = -8;
+    }
+    return adjustBunkerStats(bunker, delta);
+  }
+
+  const delta: Partial<BunkerStats> = {};
+  if (['генератор', 'энерг', 'солнеч', 'мастерск', 'кузниц', 'ман', '3d'].some((k) => lower.includes(k))) {
+    delta.energy = 10;
+  }
+  if (['ферм', 'гидропон', 'семян', 'гриб', 'вод', 'ед', 'спирт', 'алхимич'].some((k) => lower.includes(k))) {
+    delta.supplies = 10;
+  }
+  if (['оруж', 'щит', 'сейф', 'алтарь', 'клиник', 'медотсек'].some((k) => lower.includes(k))) {
+    delta.defense = 10;
+  }
+  if (['отдых', 'тренаж', 'библиотек', 'кассет', 'будуар', 'свитк'].some((k) => lower.includes(k))) {
+    delta.morale = 10;
+  }
+  if (Object.keys(delta).length === 0) {
+    delta.morale = 8;
+  }
+  return adjustBunkerStats(bunker, delta);
 }
 
 export function formatRolledTrait(category: TraitCategory, rawValue: string): string {
@@ -245,8 +430,13 @@ export function startGame(state: GameState): { state: GameState; error?: string 
         ? Math.min(state.settings.bunkerSeats, state.players.length - 1)
         : Math.max(1, Math.floor(state.players.length / 2));
 
-  const pool = mergePacks(state.settings.packs, state.settings.enableAdultContent);
-  const specialPool = getSpecialCardPool(state.settings.enableAdultContent);
+  const adultIntensity = state.settings.adultIntensity ?? 'mixed';
+  const pool = mergePacks(
+    state.settings.packs,
+    state.settings.enableAdultContent,
+    adultIntensity
+  );
+  const specialPool = getSpecialCardPool(state.settings.enableAdultContent, adultIntensity);
   const specialCount = Math.max(0, Math.min(5, state.settings.specialCardsPerPlayer ?? 2));
   const enabledSet = new Set<TraitCategory>(
     state.settings.enabledTraits && state.settings.enabledTraits.length > 0
@@ -280,6 +470,12 @@ export function startGame(state: GameState): { state: GameState; error?: string 
           revealed: true,
           removed: true,
         };
+      } else if (p.isEasterEgg && p.traits[cat]?.value && p.traits[cat].value !== '—') {
+        traits[cat] = {
+          category: cat,
+          value: p.traits[cat].value,
+          revealed: false,
+        };
       } else {
         const poolVals = shuffledPools[cat];
         traits[cat] = {
@@ -297,7 +493,14 @@ export function startGame(state: GameState): { state: GameState; error?: string 
       revealed: false,
     }));
 
-    const cardTypes = shuffle(specialPool).slice(0, specialCount);
+    const seenTypes = new Set<string>();
+    const cardTypes: typeof specialPool = [];
+    for (const tpl of shuffle(specialPool)) {
+      if (seenTypes.has(tpl.type)) continue;
+      seenTypes.add(tpl.type);
+      cardTypes.push(tpl);
+      if (cardTypes.length >= specialCount) break;
+    }
     const specialCards = cardTypes.map((t, cIdx) =>
       createSpecialCard(t.type, `${p.id}-sc-${cIdx}-${Date.now()}`)
     );
@@ -315,7 +518,141 @@ export function startGame(state: GameState): { state: GameState; error?: string 
     };
   });
 
+  // Guarantee fertility balance so a bunker never starts 100% infertile
+  if (enabledSet.has('biology') && players.length >= 2) {
+    const isFertileBio = (val: string) => {
+      const l = val.toLowerCase();
+      return l.includes('плодовит') || l.includes('беременна');
+    };
+    const isFemaleBio = (val: string) => val.toLowerCase().includes('женщина');
+    const makeFertile = (val: string, wantFemale?: boolean) => {
+      const female = wantFemale !== undefined ? wantFemale : isFemaleBio(val);
+      const age = randInt(22, 36);
+      return `${female ? 'Женщина' : 'Мужчина'}, ${age} лет (${female ? 'плодовитая' : 'плодовитый'})`;
+    };
+
+    if (players.length >= 4) {
+      const hasFertileFemale = players.some(
+        (pl) => isFertileBio(pl.traits.biology.value) && isFemaleBio(pl.traits.biology.value)
+      );
+      if (!hasFertileFemale) {
+        const candidateIdx = players.findIndex((pl) => !pl.isEasterEgg && isFemaleBio(pl.traits.biology.value));
+        const idxToFix = candidateIdx !== -1 ? candidateIdx : players.findIndex((pl) => !pl.isEasterEgg);
+        if (idxToFix !== -1) {
+          players[idxToFix] = {
+            ...players[idxToFix],
+            traits: {
+              ...players[idxToFix].traits,
+              biology: {
+                ...players[idxToFix].traits.biology,
+                value: makeFertile(players[idxToFix].traits.biology.value, true),
+              },
+            },
+          };
+        }
+      }
+
+      const hasFertileMale = players.some(
+        (pl) => isFertileBio(pl.traits.biology.value) && !isFemaleBio(pl.traits.biology.value)
+      );
+      if (!hasFertileMale) {
+        const candidateIdx = players.findIndex(
+          (pl) =>
+            !pl.isEasterEgg &&
+            !isFemaleBio(pl.traits.biology.value) &&
+            !isFertileBio(pl.traits.biology.value)
+        );
+        const fallbackIdx = players.findIndex(
+          (pl) =>
+            !pl.isEasterEgg &&
+            !(isFertileBio(pl.traits.biology.value) && isFemaleBio(pl.traits.biology.value))
+        );
+        const idxToFix = candidateIdx !== -1 ? candidateIdx : fallbackIdx;
+        if (idxToFix !== -1) {
+          players[idxToFix] = {
+            ...players[idxToFix],
+            traits: {
+              ...players[idxToFix].traits,
+              biology: {
+                ...players[idxToFix].traits.biology,
+                value: makeFertile(players[idxToFix].traits.biology.value, false),
+              },
+            },
+          };
+        }
+      }
+    } else if (!players.some((pl) => isFertileBio(pl.traits.biology.value))) {
+      const idxToFix = players.findIndex((pl) => !pl.isEasterEgg);
+      if (idxToFix !== -1) {
+        players[idxToFix] = {
+          ...players[idxToFix],
+          traits: {
+            ...players[idxToFix].traits,
+            biology: {
+              ...players[idxToFix].traits.biology,
+              value: makeFertile(players[idxToFix].traits.biology.value),
+            },
+          },
+        };
+      }
+    }
+  }
+
   const turnOrder = shuffle(players.map((p) => p.id));
+
+  const matchingArchetypes = BUNKER_ARCHETYPES.filter(
+    (a) => !a.packs || a.packs.some((p) => state.settings.packs.includes(p))
+  );
+  const archetype = shuffle(
+    matchingArchetypes.length > 0 ? matchingArchetypes : BUNKER_ARCHETYPES
+  )[0];
+
+  const matchingLocations = BUNKER_LOCATIONS.filter(
+    (l) => !l.packs || l.packs.some((p) => state.settings.packs.includes(p))
+  );
+  const location = shuffle(
+    matchingLocations.length > 0 ? matchingLocations : BUNKER_LOCATIONS
+  )[0].text;
+
+  const roomCount = randInt(3, 5);
+  const roomStatuses: BunkerRoomStatus[] = shuffle<BunkerRoomStatus>([
+    'ok',
+    'damaged',
+    'locked',
+    ...(roomCount >= 4 ? (['ok'] as BunkerRoomStatus[]) : []),
+    ...(roomCount >= 5 ? (['ok'] as BunkerRoomStatus[]) : []),
+  ]).slice(0, roomCount);
+
+  const rooms: BunkerRoom[] = shuffle(BUNKER_ROOM_TEMPLATES)
+    .slice(0, roomCount)
+    .map((tpl, idx) => ({
+      id: uid('room'),
+      name: tpl.name,
+      status: roomStatuses[idx] ?? 'ok',
+      effect: tpl.effect,
+    }));
+
+  const damagedCount = rooms.filter((r) => r.status === 'damaged').length;
+  const lockedCount = rooms.filter((r) => r.status === 'locked').length;
+  let initialBunker: BunkerInfo = {
+    title: archetype.title,
+    location,
+    layoutNote: archetype.layoutNote,
+    areaSqm: randInt(archetype.minArea, archetype.maxArea),
+    capacity,
+    supplies,
+    rooms,
+    stats: {
+      energy: clampStat(randInt(60, 78) - damagedCount * 8),
+      supplies: clampStat(randInt(58, 76) - lockedCount * 6),
+      defense: clampStat(randInt(56, 74) - (damagedCount + lockedCount) * 5),
+      morale: clampStat(randInt(58, 76)),
+    },
+    cards: bunkerCards,
+  };
+  if (bunkerCards[0]) {
+    initialBunker = applyBunkerCardEffect(initialBunker, bunkerCards[0]);
+  }
 
   let next: GameState = {
     ...state,
@@ -328,12 +665,7 @@ export function startGame(state: GameState): { state: GameState; error?: string 
     currentTurnIndex: 0,
     phaseEndsAt: null,
     catastrophe,
-    bunker: {
-      areaSqm: 60 + capacity * 25,
-      capacity,
-      supplies,
-      cards: bunkerCards,
-    },
+    bunker: initialBunker,
     votes: {},
     tiedCandidates: [],
     lastRoundResult: null,
@@ -506,7 +838,7 @@ export function startDiscussionPhase(state: GameState): GameState {
 }
 
 export function startVotingPhase(state: GameState): GameState {
-  const kicksNeeded = state.kicksPerRound[state.round - 1] ?? 0;
+  const kicksNeeded = state.kicksPerRound[state.round - 1] ?? 1;
   if (kicksNeeded === 0) {
     return proceedAfterRoundResult(
       addSystemChat(
@@ -538,7 +870,7 @@ export function startVotingPhase(state: GameState): GameState {
           ? Date.now() + state.settings.votingSeconds * 1000
           : null,
     },
-    `Голосование! В этом раунде нужно изгнать: ${kicksNeeded} чел.`
+    `Голосование! В этом раунде может быть изгнано до ${kicksNeeded} чел. (или раунд будет скипнут).`
   );
 }
 
@@ -615,7 +947,7 @@ export function resolveVotes(state: GameState): GameState {
         voterId: voter.id,
         voterName: voter.name,
         targetId,
-        targetName: 'Воздержался',
+        targetName: 'Скипнуть раунд',
         weight,
       });
       continue;
@@ -634,12 +966,13 @@ export function resolveVotes(state: GameState): GameState {
 
   const sorted = [...tally.entries()].sort((a, b) => b[1] - a[1]);
   const topCandidateScore = sorted[0]?.[1] ?? 0;
+  const resetPlayers = state.players.map((p) => ({
+    ...p,
+    hasImmunity: false,
+    voteWeight: 1,
+  }));
+
   if (skipVotes > 0 && skipVotes >= topCandidateScore) {
-    const resetPlayers = state.players.map((p) => ({
-      ...p,
-      hasImmunity: false,
-      voteWeight: 1,
-    }));
     return addSystemChat(
       {
         ...state,
@@ -653,26 +986,34 @@ export function resolveVotes(state: GameState): GameState {
           exiledIds: [],
           exiledNames: [],
           wasTie: false,
-          reason: 'Большинство воздержалось — в этом раунде никто не изгнан.',
+          reason: 'Победил вариант «Скипнуть раунд» — в этом раунде никто не изгнан.',
           voteDetails,
         },
       },
-      'Голосование пропущено — в этом раунде все остаются в бункере.'
+      'Раунд скипнут — в этом раунде все остаются в бункере.'
     );
   }
-  if (sorted.length === 0) {
-    return {
-      ...state,
-      phase: 'round_result',
-      lastRoundResult: {
-        round: state.round,
-        exiledIds: [],
-        exiledNames: [],
-        wasTie: false,
-        reason: 'Никто не может быть изгнан (действует неприкосновенность).',
-        voteDetails,
+
+  if (sorted.length === 0 || topCandidateScore === 0) {
+    return addSystemChat(
+      {
+        ...state,
+        phase: 'round_result',
+        players: resetPlayers,
+        votes: {},
+        tiedCandidates: [],
+        phaseEndsAt: null,
+        lastRoundResult: {
+          round: state.round,
+          exiledIds: [],
+          exiledNames: [],
+          wasTie: false,
+          reason: 'Никто не набрал голосов для изгнания — раунд пропущен.',
+          voteDetails,
+        },
       },
-    };
+      'В этом раунде никто не изгнан.'
+    );
   }
 
   const slotsToFill = Math.min(kicksNeeded, sorted.length);
@@ -680,26 +1021,29 @@ export function resolveVotes(state: GameState): GameState {
   const aboveCutoff = sorted.filter(([, score]) => score > cutoffScore).map(([id]) => id);
   const atCutoff = sorted.filter(([, score]) => score === cutoffScore).map(([id]) => id);
 
-  // Tie check: if more players at cutoff than remaining slots and this wasn't already a revote
-  if (
-    aboveCutoff.length + atCutoff.length > slotsToFill &&
-    state.tiedCandidates.length === 0 &&
-    cutoffScore > 0
-  ) {
+  // Tie check: any tie for the exile slot skips the round instead of kicking randomly
+  if (aboveCutoff.length + atCutoff.length > slotsToFill) {
     const tiedNames = atCutoff
       .map((id) => state.players.find((p) => p.id === id)?.name ?? '')
       .join(', ');
     return addSystemChat(
       {
         ...state,
+        phase: 'round_result',
+        players: resetPlayers,
         votes: {},
-        tiedCandidates: atCutoff,
-        phaseEndsAt:
-          state.settings.votingSeconds > 0
-            ? Date.now() + state.settings.votingSeconds * 1000
-            : null,
+        tiedCandidates: [],
+        phaseEndsAt: null,
+        lastRoundResult: {
+          round: state.round,
+          exiledIds: [],
+          exiledNames: [],
+          wasTie: true,
+          reason: `Голоса разделились поровну (${tiedNames}) — раунд скипнут, никто не изгнан.`,
+          voteDetails,
+        },
       },
-      `Ничья на голосовании! Переголосование между: ${tiedNames}.`
+      `Ничья на голосовании (${tiedNames}) — раунд скипнут, все остаются в бункере.`
     );
   }
 
@@ -742,8 +1086,9 @@ export function proceedAfterRoundResult(state: GameState, advanceFromRoundResult
 
   const aliveCount = state.players.filter((p) => p.alive).length;
   const capacity = state.bunker?.capacity ?? 1;
+  const maxSafeRounds = Math.max(state.totalRounds + 8, state.players.length * 2 + 4);
 
-  if (aliveCount <= capacity || state.round >= state.totalRounds) {
+  if (aliveCount <= capacity || state.round >= maxSafeRounds) {
     const survivors = state.players
       .filter((p) => p.alive)
       .map((p) => p.name)
@@ -759,7 +1104,7 @@ export function proceedAfterRoundResult(state: GameState, advanceFromRoundResult
   }
 
   const nextRound = state.round + 1;
-  const updatedBunker = state.bunker
+  let updatedBunker: BunkerInfo | null = state.bunker
     ? {
         ...state.bunker,
         cards: state.bunker.cards.map((c, idx) =>
@@ -767,6 +1112,13 @@ export function proceedAfterRoundResult(state: GameState, advanceFromRoundResult
         ),
       }
     : null;
+  if (state.bunker && updatedBunker) {
+    for (let idx = 0; idx < state.bunker.cards.length; idx++) {
+      if (idx < nextRound && !state.bunker.cards[idx].revealed) {
+        updatedBunker = applyBunkerCardEffect(updatedBunker, state.bunker.cards[idx]);
+      }
+    }
+  }
 
   return startRevealPhase({
     ...state,
@@ -810,7 +1162,7 @@ export function useSpecialCard(
   let updatedBunker = state.bunker;
   let updatedKicks = state.kicksPerRound;
   let logText = `${player.name} применил спецкарту «${card.title}».`;
-  const pool = mergePacks(state.settings.packs, state.settings.enableAdultContent);
+  const pool = mergePacks(state.settings.packs, state.settings.enableAdultContent, state.settings.adultIntensity ?? 'mixed');
 
   switch (card.type) {
     case 'heal': {
@@ -1083,12 +1435,15 @@ export function useSpecialCard(
         const hiddenIdx = updatedBunker.cards.findIndex((c) => !c.revealed);
         if (hiddenIdx !== -1) {
           const revealedCard = updatedBunker.cards[hiddenIdx];
-          updatedBunker = {
-            ...updatedBunker,
-            cards: updatedBunker.cards.map((c, i) =>
-              i === hiddenIdx ? { ...c, revealed: true } : c
-            ),
-          };
+          updatedBunker = applyBunkerCardEffect(
+            {
+              ...updatedBunker,
+              cards: updatedBunker.cards.map((c, i) =>
+                i === hiddenIdx ? { ...c, revealed: true } : c
+              ),
+            },
+            revealedCard
+          );
           logText = `${player.name} разведал отсек бункера: «${revealedCard.title}»!`;
         }
       }
@@ -1107,11 +1462,25 @@ export function useSpecialCard(
             isThreat: true,
             revealed: true,
           };
-          updatedBunker = {
-            ...updatedBunker,
-            cards: [...updatedBunker.cards, newCard],
-          };
-          logText = `${player.name} устроил диверсию в бункере: добавлена угроза «${picked.title}»!`;
+          const okRoomIdx = updatedBunker.rooms.findIndex((r) => r.status === 'ok');
+          const nextRooms =
+            okRoomIdx !== -1
+              ? updatedBunker.rooms.map((r, i) =>
+                  i === okRoomIdx ? { ...r, status: 'damaged' as BunkerRoomStatus } : r
+                )
+              : updatedBunker.rooms;
+          updatedBunker = adjustBunkerStats(
+            applyBunkerCardEffect(
+              {
+                ...updatedBunker,
+                rooms: nextRooms,
+                cards: [...updatedBunker.cards, newCard],
+              },
+              newCard
+            ),
+            { defense: -8, morale: -6 }
+          );
+          logText = `${player.name} устроил диверсию в бункере: добавлена угроза «${picked.title}»${okRoomIdx !== -1 ? ` и повреждён отсек «${updatedBunker.rooms[okRoomIdx].name}»` : ''}!`;
         }
       }
       break;
@@ -1257,6 +1626,120 @@ export function useSpecialCard(
       logText = `${player.name} провернул «${card.title}»: ${target.name} лишён голоса, а вес голоса ${player.name} вырос на +1!`;
       break;
     }
+
+    case 'truth_or_dare': {
+      const target = updatedPlayers.find(
+        (p) => p.id === targetPlayerId && p.id !== playerId && p.alive
+      );
+      if (!target) return { state, error: 'Выберите другого живого игрока.' };
+      const hiddenCats = TRAIT_ORDER.filter(
+        (cat) => !target.traits[cat].revealed && !target.traits[cat].removed
+      );
+      if (hiddenCats.length > 0) {
+        const picked = shuffle(hiddenCats)[0];
+        updatedPlayers = updatedPlayers.map((p) =>
+          p.id === target.id
+            ? {
+                ...p,
+                traits: {
+                  ...p.traits,
+                  [picked]: { ...p.traits[picked], revealed: true },
+                },
+              }
+            : p
+        );
+        logText = `${player.name} запустил «${card.title}» на ${target.name}: вскрыта «${TRAIT_LABELS[picked]}» (${target.traits[picked].value})!`;
+      } else {
+        updatedPlayers = updatedPlayers.map((p) =>
+          p.id === target.id ? { ...p, voteWeight: 0 } : p
+        );
+        logText = `${player.name} запустил «${card.title}» на ${target.name}: скрытых карт нет — ${target.name} лишён голоса в этом раунде!`;
+      }
+      break;
+    }
+
+    case 'dark_deal': {
+      const nextHealth = applyHarmToHealth(player.traits.health.value);
+      updatedPlayers = updatedPlayers.map((p) =>
+        p.id === playerId
+          ? {
+              ...p,
+              voteWeight: p.voteWeight + 1,
+              traits: {
+                ...p.traits,
+                health: { ...p.traits.health, value: nextHealth, revealed: true },
+              },
+            }
+          : p
+      );
+      logText = `${player.name} заключил «${card.title}»: вес голоса +1, но здоровье пострадало (${nextHealth})!`;
+      break;
+    }
+
+    case 'organ_harvest': {
+      const target = updatedPlayers.find(
+        (p) => p.id === targetPlayerId && p.id !== playerId && p.alive
+      );
+      if (!target) return { state, error: 'Выберите другого живого игрока.' };
+      const nextTargetHealth = applyHarmToHealth(target.traits.health.value);
+      updatedPlayers = updatedPlayers.map((p) => {
+        if (p.id === playerId) {
+          return {
+            ...p,
+            traits: {
+              ...p.traits,
+              health: { ...p.traits.health, value: 'Полностью здоров' },
+            },
+          };
+        }
+        if (p.id === target.id) {
+          return {
+            ...p,
+            traits: {
+              ...p.traits,
+              health: { ...p.traits.health, value: nextTargetHealth },
+            },
+          };
+        }
+        return p;
+      });
+      logText = `${player.name} провернул «${card.title}» с ${target.name}: ${player.name} полностью здоров, а у ${target.name} осложнение (${nextTargetHealth})!`;
+      break;
+    }
+
+    case 'expand_bunker': {
+      if (!updatedBunker) return { state, error: 'Бункер не найден.' };
+      updatedBunker = {
+        ...updatedBunker,
+        capacity: updatedBunker.capacity + 1,
+      };
+      logText = `${player.name} применил «${card.title}»: вместимость бункера увеличена до ${updatedBunker.capacity} мест!`;
+      break;
+    }
+
+    case 'shrink_bunker': {
+      if (!updatedBunker) return { state, error: 'Бункер не найден.' };
+      updatedBunker = {
+        ...updatedBunker,
+        capacity: Math.max(1, updatedBunker.capacity - 1),
+      };
+      logText = `${player.name} применил «${card.title}»: вместимость бункера сократилась до ${updatedBunker.capacity} мест!`;
+      break;
+    }
+
+    case 'revive_exiled': {
+      const target = updatedPlayers.find(
+        (p) => p.id === targetPlayerId && p.id !== playerId && !p.alive
+      );
+      if (!target) return { state, error: 'Выберите выбывшего игрока для возвращения в бункер.' };
+      updatedPlayers = updatedPlayers.map((p) =>
+        p.id === target.id
+          ? { ...p, alive: true, hasImmunity: false, voteWeight: 1 }
+          : p
+      );
+      logText = `${player.name} объявил «${card.title}» — ${target.name} возвращается обратно в бункер!`;
+      break;
+    }
   }
 
   return {
@@ -1315,7 +1798,7 @@ export function useTraitAbility(
   );
   let updatedBunker = state.bunker;
   let logText = `${player.name} применил способность «${ability.title}».`;
-  const pool = mergePacks(state.settings.packs, state.settings.enableAdultContent);
+  const pool = mergePacks(state.settings.packs, state.settings.enableAdultContent, state.settings.adultIntensity ?? 'mixed');
 
   switch (ability.kind) {
     case 'heal': {
@@ -1395,18 +1878,34 @@ export function useTraitAbility(
     case 'repair_bunker': {
       if (!updatedBunker) return { state, error: 'Бункер не найден.' };
       const threat = updatedBunker.cards.find((c) => c.revealed && c.isThreat);
-      if (!threat) {
-        return { state, error: 'Сейчас нет открытых угроз бункера для устранения.' };
+      const brokenRoom = updatedBunker.rooms.find((r) => r.status !== 'ok');
+      if (!threat && !brokenRoom) {
+        return { state, error: 'Сейчас нет открытых угроз или повреждённых отсеков для ремонта.' };
       }
-      updatedBunker = {
-        ...updatedBunker,
-        cards: updatedBunker.cards.map((c) =>
-          c.id === threat.id
-            ? { ...c, isThreat: false, title: `Устранено: ${c.title}` }
-            : c
-        ),
-      };
-      logText = `${player.name} («${trait.value}») устранил угрозу «${threat.title}»!`;
+      const nextCards = threat
+        ? updatedBunker.cards.map((c) =>
+            c.id === threat.id
+              ? { ...c, isThreat: false, title: `Устранено: ${c.title}` }
+              : c
+          )
+        : updatedBunker.cards;
+      const nextRooms = brokenRoom
+        ? updatedBunker.rooms.map((r) =>
+            r.id === brokenRoom.id ? { ...r, status: 'ok' as BunkerRoomStatus } : r
+          )
+        : updatedBunker.rooms;
+      updatedBunker = adjustBunkerStats(
+        { ...updatedBunker, cards: nextCards, rooms: nextRooms },
+        {
+          energy: brokenRoom ? 10 : 6,
+          defense: (threat ? 12 : 0) + (brokenRoom ? 8 : 0),
+          morale: threat ? 6 : 4,
+        }
+      );
+      const parts: string[] = [];
+      if (threat) parts.push(`устранена угроза «${threat.title}»`);
+      if (brokenRoom) parts.push(`восстановлен отсек «${brokenRoom.name}»`);
+      logText = `${player.name} («${trait.value}») провёл ремонт: ${parts.join(' и ')}!`;
       break;
     }
 
@@ -1417,12 +1916,15 @@ export function useTraitAbility(
         return { state, error: 'Все карты бункера уже открыты.' };
       }
       const revealedCard = updatedBunker.cards[hiddenIdx];
-      updatedBunker = {
-        ...updatedBunker,
-        cards: updatedBunker.cards.map((c, i) =>
-          i === hiddenIdx ? { ...c, revealed: true } : c
-        ),
-      };
+      updatedBunker = applyBunkerCardEffect(
+        {
+          ...updatedBunker,
+          cards: updatedBunker.cards.map((c, i) =>
+            i === hiddenIdx ? { ...c, revealed: true } : c
+          ),
+        },
+        revealedCard
+      );
       logText = `${player.name} («${trait.value}») открыл отсек бункера: «${revealedCard.title}»!`;
       break;
     }
@@ -1627,7 +2129,7 @@ export function hostRerollPlayerTrait(
   const target = state.players.find((p) => p.id === targetPlayerId);
   if (!target) return state;
 
-  const pool = mergePacks(state.settings.packs, state.settings.enableAdultContent).traits[category];
+  const pool = mergePacks(state.settings.packs, state.settings.enableAdultContent, state.settings.adultIntensity ?? 'mixed').traits[category];
   const currentVal = target.traits[category].value;
   const candidates = pool.filter((v) => v !== currentVal);
   const pickedRaw = shuffle(candidates.length > 0 ? candidates : pool)[0];
@@ -1695,7 +2197,7 @@ export function hostRerollBonusTrait(
   if (!bonus) return state;
 
   const customDef = state.settings.customFields.find((cf) => cf.label === bonus.label);
-  const packPool = mergePacks(state.settings.packs, state.settings.enableAdultContent);
+  const packPool = mergePacks(state.settings.packs, state.settings.enableAdultContent, state.settings.adultIntensity ?? 'mixed');
   const pool =
     customDef && customDef.pool.length > 0
       ? customDef.pool
@@ -1804,6 +2306,8 @@ export function getPlayerView(state: GameState, viewerId: string): PlayerView {
       id: p.id,
       name: p.name,
       isHost: p.isHost,
+      isBot: p.isBot,
+      isEasterEgg: p.isEasterEgg,
       connected: p.connected,
       alive: p.alive,
       revealedTraits,
@@ -1816,11 +2320,9 @@ export function getPlayerView(state: GameState, viewerId: string): PlayerView {
     };
   });
 
-  const bunker = state.bunker
+  const bunker: BunkerInfo | null = state.bunker
     ? {
-        areaSqm: state.bunker.areaSqm,
-        capacity: state.bunker.capacity,
-        supplies: state.bunker.supplies,
+        ...state.bunker,
         cards: state.bunker.cards.map((c) =>
           c.revealed || state.phase === 'game_over'
             ? c
@@ -1999,7 +2501,31 @@ export function evaluateBunkerSurvival(
     unresolvedIssues.push('Дефицит припасов без специалиста по выращиванию или готовке');
   }
 
-  let score = 68 + Math.min(32, resolvedThreats.length * 8) - unresolvedIssues.length * 18;
+  let statBonus = 0;
+  if (view.bunker) {
+    const brokenRooms = view.bunker.rooms.filter((r) => r.status !== 'ok');
+    if (brokenRooms.length > 0) {
+      unresolvedIssues.push(
+        `Неисправные или заблокированные отсеки (${brokenRooms.length}): ${brokenRooms.map((r) => r.name).join(', ')}`
+      );
+    } else if (view.bunker.rooms.length > 0) {
+      resolvedThreats.push('Все отсеки бункера исправны и функционируют');
+    }
+
+    const { energy, supplies, defense, morale } = view.bunker.stats;
+    if (energy < 35) unresolvedIssues.push(`Критически низкий уровень энергии (${energy}%)`);
+    if (supplies < 35) unresolvedIssues.push(`Критически низкий запас припасов (${supplies}%)`);
+    if (defense < 35) unresolvedIssues.push(`Критически слабая оборона бункера (${defense}%)`);
+    if (morale < 35) unresolvedIssues.push(`Критически низкая мораль в бункере (${morale}%)`);
+
+    const avgStats = (energy + supplies + defense + morale) / 4;
+    if (avgStats >= 65) {
+      resolvedThreats.push(`Высокая устойчивость систем бункера (среднее ${Math.round(avgStats)}%)`);
+    }
+    statBonus = Math.round((avgStats - 55) * 0.25);
+  }
+
+  let score = 68 + Math.min(32, resolvedThreats.length * 8) + statBonus - unresolvedIssues.length * 18;
   score = Math.max(0, Math.min(100, score));
 
   let status: SurvivalEvaluation['status'];
@@ -2033,4 +2559,132 @@ export function evaluateBunkerSurvival(
     unresolvedIssues,
     summary,
   };
+}
+
+export function runBotTurn(state: GameState): { state: GameState; acted: boolean } {
+  if (state.phase === 'reveal') {
+    const currentId = state.turnOrder[state.currentTurnIndex];
+    const bot = state.players.find((p) => p.id === currentId && p.isBot && p.alive);
+    if (!bot) return { state, acted: false };
+
+    const hiddenCats = TRAIT_ORDER.filter(
+      (cat) => !bot.traits[cat].revealed && !bot.traits[cat].removed
+    );
+    let nextState = state;
+    if (hiddenCats.length > 0) {
+      // Reveal the highest-scoring hidden trait to present the strongest case
+      const bestCat = [...hiddenCats].sort(
+        (a, b) =>
+          scoreTraitCard(b, bot.traits[b].value).score -
+          scoreTraitCard(a, bot.traits[a].value).score
+      )[0];
+      const revealRes = revealTrait(nextState, bot.id, bestCat);
+      if (!revealRes.error) {
+        nextState = revealRes.state;
+      }
+    } else {
+      nextState = startDiscussionPhase(nextState);
+    }
+
+    // Try using one helpful already-revealed ability if available
+    const updatedBot = nextState.players.find((p) => p.id === bot.id && p.alive);
+    if (updatedBot && nextState.phase !== 'game_over') {
+      for (const cat of TRAIT_ORDER) {
+        const t = updatedBot.traits[cat];
+        if (!t.revealed || t.removed || updatedBot.usedTraitAbilities.includes(cat)) continue;
+        const ability = getTraitAbility(cat, t.value);
+        if (!ability) continue;
+
+        if (ability.kind === 'repair_bunker' && nextState.bunker) {
+          const hasWork =
+            nextState.bunker.cards.some((c) => c.revealed && c.isThreat) ||
+            nextState.bunker.rooms.some((r) => r.status !== 'ok');
+          if (hasWork) {
+            const res = useTraitAbility(nextState, updatedBot.id, cat);
+            if (!res.error) nextState = res.state;
+            break;
+          }
+        } else if (ability.kind === 'heal') {
+          const sickTarget = nextState.players.find(
+            (p) => p.alive && !isHealthyStatus(p.traits.health.value)
+          );
+          if (sickTarget) {
+            const res = useTraitAbility(nextState, updatedBot.id, cat, sickTarget.id);
+            if (!res.error) nextState = res.state;
+            break;
+          }
+        } else if (ability.kind === 'protect' || ability.kind === 'boost_vote' || ability.kind === 'craft_bonus') {
+          const res = useTraitAbility(nextState, updatedBot.id, cat, updatedBot.id);
+          if (!res.error) nextState = res.state;
+          break;
+        }
+      }
+    }
+
+    return { state: nextState, acted: true };
+  }
+
+  if (state.phase === 'voting') {
+    const bot = state.players.find(
+      (p) => p.isBot && p.alive && p.voteWeight > 0 && state.votes[p.id] === undefined
+    );
+    if (!bot) return { state, acted: false };
+
+    const botView = getPlayerView(state, bot.id);
+    const validCandidates = botView.players.filter(
+      (p) =>
+        p.alive &&
+        p.id !== bot.id &&
+        (state.tiedCandidates.length === 0 || state.tiedCandidates.includes(p.id))
+    );
+
+    if (validCandidates.length === 0) {
+      const skipRes = castVote(state, bot.id, SKIP_VOTE_ID);
+      return { state: skipRes.state, acted: !skipRes.error };
+    }
+
+    // Score candidates using revealed info + small per-bot deterministic jitter (no array-index bias)
+    const botHash = bot.id.split('').reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+    const scored = validCandidates
+      .map((cand) => {
+        const baseScore = scorePlayer(cand, true);
+        const immunePenalty = cand.hasImmunity ? 100 : 0;
+        const candHash = cand.id.split('').reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+        const personalBias = ((botHash + candHash) % 5) - 2; // -2..+2 individual preference
+        return {
+          cand,
+          rawScore: baseScore,
+          effectiveScore: baseScore + immunePenalty + personalBias,
+        };
+      })
+      .sort((a, b) => a.effectiveScore - b.effectiveScore);
+
+    const weakestRaw = Math.min(...validCandidates.map((c) => scorePlayer(c, true)));
+    // In round 1 or when no clear weak/threatening candidate exists, bots often vote to skip
+    const skipChance = state.round <= 1 ? 0.55 : weakestRaw >= 2 ? 0.35 : 0.1;
+    if (Math.random() < skipChance) {
+      const skipRes = castVote(state, bot.id, SKIP_VOTE_ID);
+      return { state: skipRes.state, acted: !skipRes.error };
+    }
+
+    // Weighted random among the bottom 2-3 weakest candidates
+    const pool = scored.slice(0, Math.min(3, scored.length));
+    const maxScore = pool[pool.length - 1].effectiveScore;
+    const weights = pool.map((item) => Math.max(1, maxScore - item.effectiveScore + 2));
+    const totalWeight = weights.reduce((a, b) => a + b, 0);
+    let roll = Math.random() * totalWeight;
+    let chosen = pool[0].cand;
+    for (let i = 0; i < pool.length; i++) {
+      roll -= weights[i];
+      if (roll <= 0) {
+        chosen = pool[i].cand;
+        break;
+      }
+    }
+
+    const voteRes = castVote(state, bot.id, chosen.id);
+    return { state: voteRes.state, acted: !voteRes.error };
+  }
+
+  return { state, acted: false };
 }

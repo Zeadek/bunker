@@ -112,7 +112,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
   const [masterRevealSpoilers, setMasterRevealSpoilers] = useState(false);
   const [masterEdits, setMasterEdits] = useState<Partial<Record<TraitCategory, string>>>({});
   const [masterBonusEdits, setMasterBonusEdits] = useState<Record<string, string>>({});
-  const chatEndRef = useRef<HTMLDivElement>(null);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -140,7 +140,9 @@ export const GameScreen: React.FC<GameScreenProps> = ({
   }, [view.phaseEndsAt]);
 
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (chatScrollRef.current) {
+      chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+    }
   }, [view.chat.length]);
 
   const me = view.me;
@@ -153,9 +155,11 @@ export const GameScreen: React.FC<GameScreenProps> = ({
       return;
     }
     const allowSelf = card.allowSelfTarget !== false;
-    const firstTarget = allowSelf
-      ? me?.id ?? view.players.find((p) => p.alive)?.id ?? ''
-      : view.players.find((p) => p.alive && p.id !== me?.id)?.id ?? '';
+    const firstTarget = card.allowDeadTarget
+      ? view.players.find((p) => !p.alive && p.id !== me?.id)?.id ?? ''
+      : allowSelf
+        ? me?.id ?? view.players.find((p) => p.alive)?.id ?? ''
+        : view.players.find((p) => p.alive && p.id !== me?.id)?.id ?? '';
     setTargetPlayerId(firstTarget);
     setTargetCategory('profession');
     setActiveSpecial(card);
@@ -404,13 +408,14 @@ export const GameScreen: React.FC<GameScreenProps> = ({
                   <button
                     className="btn btn-outline"
                     style={{ padding: '4px 10px', fontSize: 12 }}
+                    title="Скипнуть раунд (никого не выгонять)"
                     onClick={() => onCastVote(SKIP_VOTE_ID)}
                   >
-                    Воздержаться
+                    Скипнуть раунд
                   </button>
                 )}
                 {view.myVote === SKIP_VOTE_ID && (
-                  <span className="badge">Вы воздержались</span>
+                  <span className="badge">Вы за скип раунда</span>
                 )}
               </>
             )}
@@ -443,6 +448,11 @@ export const GameScreen: React.FC<GameScreenProps> = ({
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <span style={{ fontWeight: 700 }}>{p.name}</span>
                   {p.id === me?.id && <span className="badge">Вы</span>}
+                  {p.isBot && (
+                    <span className="badge">
+                      🤖 БОТ{p.isEasterEgg ? ' ★' : ''}
+                    </span>
+                  )}
                   {p.hasImmunity && (
                     <span className="badge badge-ok">
                       <Shield size={12} /> Иммунитет
@@ -525,16 +535,102 @@ export const GameScreen: React.FC<GameScreenProps> = ({
       )}
 
       {view.bunker && (
-        <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Shield size={18} color="var(--amber)" />
-            Бункер: {view.bunker.areaSqm} м² • Мест: {view.bunker.capacity}
+        <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Shield size={18} color="var(--amber)" />
+              {view.bunker.title}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--amber)', marginTop: 2 }}>
+              📍 {view.bunker.location}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+              Площадь: <strong style={{ color: 'var(--text)' }}>{view.bunker.areaSqm} м²</strong> • Мест:{' '}
+              <strong style={{ color: 'var(--text)' }}>{view.bunker.capacity}</strong>
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+              {view.bunker.layoutNote}
+            </div>
           </div>
+
+          {/* 4 Progress Bars */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
+            {(
+              [
+                { key: 'energy', label: '⚡ Энергия', value: view.bunker.stats.energy },
+                { key: 'supplies', label: '🥫 Припасы', value: view.bunker.stats.supplies },
+                { key: 'defense', label: '🛡️ Оборона', value: view.bunker.stats.defense },
+                { key: 'morale', label: '🧠 Мораль', value: view.bunker.stats.morale },
+              ] as const
+            ).map((st) => {
+              const barColor =
+                st.value >= 65 ? '#34d399' : st.value >= 35 ? '#f59e0b' : '#ef4444';
+              return (
+                <div key={st.key} className="card-subtle" style={{ padding: '8px 10px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+                    <span>{st.label}</span>
+                    <strong className="mono" style={{ color: barColor }}>{st.value}%</strong>
+                  </div>
+                  <div style={{ height: 6, borderRadius: 99, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+                    <div
+                      style={{
+                        width: `${Math.max(0, Math.min(100, st.value))}%`,
+                        height: '100%',
+                        background: barColor,
+                        transition: 'width 0.25s ease',
+                      }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
           <div style={{ fontSize: 13, color: 'var(--muted)' }}>
             <strong style={{ color: 'var(--text)' }}>Припасы:</strong> {view.bunker.supplies}
           </div>
 
+          {/* Bunker Rooms */}
+          {view.bunker.rooms && view.bunker.rooms.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--amber)', textTransform: 'uppercase' }}>
+                Отсеки бункера ({view.bunker.rooms.length})
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 6 }}>
+                {view.bunker.rooms.map((rm) => {
+                  const statusLabel =
+                    rm.status === 'ok'
+                      ? 'Исправен'
+                      : rm.status === 'damaged'
+                        ? 'Повреждён'
+                        : 'Заблокирован';
+                  const statusClass =
+                    rm.status === 'ok'
+                      ? 'badge-ok'
+                      : rm.status === 'damaged'
+                        ? 'badge-danger'
+                        : 'badge-amber';
+                  return (
+                    <div key={rm.id} className="card-subtle" style={{ padding: '8px 10px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                        <strong style={{ fontSize: 12 }}>{rm.name}</strong>
+                        <span className={`badge ${statusClass}`} style={{ flexShrink: 0 }}>
+                          {statusLabel}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--muted)' }}>{rm.effect}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Bunker Event/Feature Cards */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>
+              Особенности и угрозы
+            </div>
             {view.bunker.cards.map((bc) => (
               <div
                 key={bc.id}
@@ -570,6 +666,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
       </div>
 
       <div
+        ref={chatScrollRef}
         style={{
           height: 260,
           overflowY: 'auto',
@@ -594,7 +691,6 @@ export const GameScreen: React.FC<GameScreenProps> = ({
             )}
           </div>
         ))}
-        <div ref={chatEndRef} />
       </div>
 
       <form
@@ -830,9 +926,12 @@ export const GameScreen: React.FC<GameScreenProps> = ({
 
       {/* Special Card Modal */}
       {activeSpecial && (() => {
-        const specialTargets = view.players.filter(
-          (p) => p.alive && (activeSpecial.allowSelfTarget === false ? p.id !== me?.id : true)
-        );
+        const specialTargets = view.players.filter((p) => {
+          if (activeSpecial.allowDeadTarget) {
+            return !p.alive && p.id !== me?.id;
+          }
+          return p.alive && (activeSpecial.allowSelfTarget === false ? p.id !== me?.id : true);
+        });
         const missingTarget = activeSpecial.needsTargetPlayer && (specialTargets.length === 0 || !targetPlayerId);
         return (
           <div className="modal-backdrop" onClick={() => setActiveSpecial(null)}>
