@@ -1,3 +1,5 @@
+import type { ComboGameState } from './combo/comboTypes';
+
 export type TraitCategory =
   | 'profession'
   | 'biology'
@@ -238,7 +240,11 @@ export interface CustomFieldDef {
 
 export type AdultIntensity = 'mixed' | 'high' | 'only';
 
+export type GameMode = 'classic' | 'combo';
+
 export interface GameSettings {
+  gameMode?: GameMode;
+  comboRounds?: number;
   packs: PackId[];
   enableAdultContent: boolean;
   adultIntensity?: AdultIntensity;
@@ -346,8 +352,21 @@ export type ClientAction =
       targetCategory?: TraitCategory;
     }
   | { type: 'CAST_VOTE'; targetPlayerId: string }
-  | { type: 'CHAT'; text: string };
+  | { type: 'CHAT'; text: string }
+  | { type: 'COMBO_PLACE_CARD'; cardId: string; slotIndex: number }
+  | { type: 'COMBO_SWAP_DECK'; cardId: string }
+  | { type: 'COMBO_BLIND_TRADE'; myCardId: string; targetPlayerId: string }
+  | {
+      type: 'COMBO_PLAY_TACTIC';
+      cardId: string;
+      targetPlayerId?: string;
+      slotIndex?: number;
+      newCategory?: TraitCategory;
+    }
+  | { type: 'COMBO_READY' }
+  | { type: 'COMBO_VOTE'; likeTargetId?: string; hateTargetId?: string };
 
 export type HostPacket =
   | { type: 'STATE_SYNC'; view: PlayerView }
+  | { type: 'COMBO_STATE_SYNC'; comboState: ComboGameState }
   | { type: 'ERROR'; message: string };

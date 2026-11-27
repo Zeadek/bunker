@@ -656,38 +656,24 @@ describe('Bunker game engine', () => {
     expect(revRes.state.players.find((p) => p.id === 'p2')?.alive).toBe(true);
   });
 
-  it('includes separate physiology category and guarantees fertile players on startGame', () => {
+  it('includes separate physiology category and rolls natural biology fertility', () => {
     const strongPhys = scoreTraitCard('physiology', '185 см, атлет, высокий болевой порог');
     expect(strongPhys.tags).toContain('survival');
     expect(strongPhys.score).toBeGreaterThan(1);
 
-    for (let run = 0; run < 5; run++) {
-      let state = createInitialState(`FERT${run}`, 'p1', 'Игрок 1');
-      state = addOrReconnectPlayer(state, 'p2', 'Игрок 2').state;
-      state = addOrReconnectPlayer(state, 'p3', 'Игрок 3').state;
-      state = addOrReconnectPlayer(state, 'p4', 'Игрок 4').state;
+    let state = createInitialState('FERT1', 'p1', 'Игрок 1');
+    state = addOrReconnectPlayer(state, 'p2', 'Игрок 2').state;
+    state = addOrReconnectPlayer(state, 'p3', 'Игрок 3').state;
+    state = addOrReconnectPlayer(state, 'p4', 'Игрок 4').state;
 
-      const started = startGame(state);
-      expect(started.error).toBeUndefined();
-      const players = started.state.players;
+    const started = startGame(state);
+    expect(started.error).toBeUndefined();
+    const players = started.state.players;
 
-      // Every player has a rolled physiology trait
-      for (const p of players) {
-        expect(p.traits.physiology.value).toBeTruthy();
-        expect(p.traits.physiology.value).not.toBe('—');
-      }
-
-      // At least 1 fertile female and 1 fertile male when >= 4 players
-      const hasFertileFemale = players.some((p) => {
-        const b = p.traits.biology.value.toLowerCase();
-        return b.includes('женщина') && (b.includes('плодовит') || b.includes('беременна'));
-      });
-      const hasFertileMale = players.some((p) => {
-        const b = p.traits.biology.value.toLowerCase();
-        return !b.includes('женщина') && b.includes('плодовит');
-      });
-      expect(hasFertileFemale).toBe(true);
-      expect(hasFertileMale).toBe(true);
+    for (const p of players) {
+      expect(p.traits.physiology.value).toBeTruthy();
+      expect(p.traits.physiology.value).not.toBe('—');
+      expect(p.traits.biology.value.toLowerCase()).toMatch(/(плодовит|бесплод|беременна)/);
     }
   });
 });

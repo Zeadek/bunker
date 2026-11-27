@@ -80,6 +80,8 @@ export function createInitialState(
       totalRounds: 0,
       kicksPerRound: [],
       settings: {
+        gameMode: 'classic',
+        comboRounds: 5,
         packs: ['classic'],
         enableAdultContent: false,
         adultIntensity: 'mixed',
@@ -517,86 +519,6 @@ export function startGame(state: GameState): { state: GameState; error?: string 
       voteWeight: 1,
     };
   });
-
-  // Guarantee fertility balance so a bunker never starts 100% infertile
-  if (enabledSet.has('biology') && players.length >= 2) {
-    const isFertileBio = (val: string) => {
-      const l = val.toLowerCase();
-      return l.includes('плодовит') || l.includes('беременна');
-    };
-    const isFemaleBio = (val: string) => val.toLowerCase().includes('женщина');
-    const makeFertile = (val: string, wantFemale?: boolean) => {
-      const female = wantFemale !== undefined ? wantFemale : isFemaleBio(val);
-      const age = randInt(22, 36);
-      return `${female ? 'Женщина' : 'Мужчина'}, ${age} лет (${female ? 'плодовитая' : 'плодовитый'})`;
-    };
-
-    if (players.length >= 4) {
-      const hasFertileFemale = players.some(
-        (pl) => isFertileBio(pl.traits.biology.value) && isFemaleBio(pl.traits.biology.value)
-      );
-      if (!hasFertileFemale) {
-        const candidateIdx = players.findIndex((pl) => !pl.isEasterEgg && isFemaleBio(pl.traits.biology.value));
-        const idxToFix = candidateIdx !== -1 ? candidateIdx : players.findIndex((pl) => !pl.isEasterEgg);
-        if (idxToFix !== -1) {
-          players[idxToFix] = {
-            ...players[idxToFix],
-            traits: {
-              ...players[idxToFix].traits,
-              biology: {
-                ...players[idxToFix].traits.biology,
-                value: makeFertile(players[idxToFix].traits.biology.value, true),
-              },
-            },
-          };
-        }
-      }
-
-      const hasFertileMale = players.some(
-        (pl) => isFertileBio(pl.traits.biology.value) && !isFemaleBio(pl.traits.biology.value)
-      );
-      if (!hasFertileMale) {
-        const candidateIdx = players.findIndex(
-          (pl) =>
-            !pl.isEasterEgg &&
-            !isFemaleBio(pl.traits.biology.value) &&
-            !isFertileBio(pl.traits.biology.value)
-        );
-        const fallbackIdx = players.findIndex(
-          (pl) =>
-            !pl.isEasterEgg &&
-            !(isFertileBio(pl.traits.biology.value) && isFemaleBio(pl.traits.biology.value))
-        );
-        const idxToFix = candidateIdx !== -1 ? candidateIdx : fallbackIdx;
-        if (idxToFix !== -1) {
-          players[idxToFix] = {
-            ...players[idxToFix],
-            traits: {
-              ...players[idxToFix].traits,
-              biology: {
-                ...players[idxToFix].traits.biology,
-                value: makeFertile(players[idxToFix].traits.biology.value, false),
-              },
-            },
-          };
-        }
-      }
-    } else if (!players.some((pl) => isFertileBio(pl.traits.biology.value))) {
-      const idxToFix = players.findIndex((pl) => !pl.isEasterEgg);
-      if (idxToFix !== -1) {
-        players[idxToFix] = {
-          ...players[idxToFix],
-          traits: {
-            ...players[idxToFix].traits,
-            biology: {
-              ...players[idxToFix].traits.biology,
-              value: makeFertile(players[idxToFix].traits.biology.value),
-            },
-          },
-        };
-      }
-    }
-  }
 
   const turnOrder = shuffle(players.map((p) => p.id));
 
@@ -2659,9 +2581,36 @@ export function runBotTurn(state: GameState): { state: GameState; acted: boolean
       })
       .sort((a, b) => a.effectiveScore - b.effectiveScore);
 
+    const alivePlayers = state.players.filter((p) => p.alive);
+    const activeCats =
+      state.settings.enabledTraits && state.settings.enabledTraits.length > 0
+        ? state.settings.enabledTraits
+        : TRAIT_ORDER;
+    let totalActiveSlots = 0;
+    let revealedSlots = 0;
+    for (const p of alivePlayers) {
+      for (const cat of activeCats) {
+        const t = p.traits[cat];
+        if (t && !t.removed) {
+          totalActiveSlots += 1;
+          if (t.revealed) revealedSlots += 1;
+        }
+      }
+    }
+    const revealedRatio = totalActiveSlots > 0 ? revealedSlots / totalActiveSlots : 0;
+
     const weakestRaw = Math.min(...validCandidates.map((c) => scorePlayer(c, true)));
-    // In round 1 or when no clear weak/threatening candidate exists, bots often vote to skip
-    const skipChance = state.round <= 1 ? 0.55 : weakestRaw >= 2 ? 0.35 : 0.1;
+    // Once >= 50% of active traits are revealed or from round 3+, bots stop skipping and vote out the weakest
+    const skipChance =
+      state.round >= 3 || revealedRatio >= 0.5
+        ? weakestRaw >= 4
+          ? 0.05
+          : 0
+        : state.round <= 1
+          ? 0.55
+          : weakestRaw >= 2
+            ? 0.35
+            : 0.1;
     if (Math.random() < skipChance) {
       const skipRes = castVote(state, bot.id, SKIP_VOTE_ID);
       return { state: skipRes.state, acted: !skipRes.error };

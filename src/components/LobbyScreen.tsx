@@ -213,6 +213,50 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
         {isHost && (
           <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div style={{ fontWeight: 700 }}>Настройки партии</div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>Режим игры:</span>
+              {(
+                [
+                  { id: 'classic', label: '🛡️ Классический Бункер' },
+                  { id: 'combo', label: '⚡ Combo Draft (Балатро-Бункер)' },
+                ] as const
+              ).map((mode) => {
+                const active = (view.settings.gameMode ?? 'classic') === mode.id;
+                return (
+                  <button
+                    key={mode.id}
+                    type="button"
+                    className={`btn ${active ? 'btn-primary' : 'btn-outline'}`}
+                    style={{ padding: '6px 12px', fontSize: 13 }}
+                    onClick={() =>
+                      onUpdateSettings({
+                        ...view.settings,
+                        gameMode: mode.id,
+                        comboRounds: view.settings.comboRounds ?? 5,
+                      })
+                    }
+                  >
+                    {mode.label}
+                  </button>
+                );
+              })}
+            </div>
+            {(view.settings.gameMode ?? 'classic') === 'combo' && (
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}>Раундов в Combo Draft:</span>
+                {[3, 5, 7].map((cnt) => (
+                  <button
+                    key={cnt}
+                    type="button"
+                    className={`btn ${(view.settings.comboRounds ?? 5) === cnt ? 'btn-primary' : 'btn-outline'}`}
+                    style={{ padding: '4px 10px', fontSize: 12 }}
+                    onClick={() => onUpdateSettings({ ...view.settings, comboRounds: cnt })}
+                  >
+                    {cnt} раундов
+                  </button>
+                ))}
+              </div>
+            )}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
               <div>
                 <label style={{ fontSize: 12, color: 'var(--muted)' }}>
