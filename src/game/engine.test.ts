@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { ALL_PACKS, mergePacks } from './data';
 import {
   addOrReconnectPlayer,
   castVote,
@@ -81,5 +82,24 @@ describe('Bunker game engine', () => {
     expect(state.phase).toBe('round_result');
     expect(state.lastRoundResult?.exiledIds).toEqual(['p4']);
     expect(state.players.find((p) => p.id === 'p4')?.alive).toBe(false);
+  });
+
+  it('supports fantasy pack and merging both packs', () => {
+    const merged = mergePacks(['classic', 'fantasy']);
+    expect(merged.catastrophes.length).toBe(
+      ALL_PACKS.classic.catastrophes.length + ALL_PACKS.fantasy.catastrophes.length
+    );
+    expect(merged.traits.profession.length).toBe(
+      ALL_PACKS.classic.traits.profession.length + ALL_PACKS.fantasy.traits.profession.length
+    );
+
+    let state = createInitialState('FANT1', 'p1', 'Маг');
+    state = addOrReconnectPlayer(state, 'p2', 'Орк').state;
+    state = { ...state, settings: { ...state.settings, packs: ['fantasy'] } };
+    const started = startGame(state).state;
+
+    expect(ALL_PACKS.fantasy.catastrophes.some((c) => c.id === started.catastrophe?.id)).toBe(true);
+    expect(ALL_PACKS.fantasy.traits.profession).toContain(started.players[0].traits.profession.value);
+    expect(ALL_PACKS.fantasy.traits.biology).toContain(started.players[0].traits.biology.value);
   });
 });

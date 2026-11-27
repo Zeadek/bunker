@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Check, Copy, LogOut, Play, Users } from 'lucide-react';
-import { GameSettings, PlayerView } from '../game/types';
+import { Check, Copy, Layers, LogOut, Play, Users } from 'lucide-react';
+import { ALL_PACKS } from '../game/data';
+import { GameSettings, PackId, PlayerView } from '../game/types';
 
 interface LobbyScreenProps {
   view: PlayerView;
@@ -31,6 +32,16 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
+  };
+
+  const packList = Object.values(ALL_PACKS);
+
+  const togglePack = (packId: PackId) => {
+    const current = view.settings.packs;
+    const exists = current.includes(packId);
+    if (exists && current.length <= 1) return; // keep at least 1 pack
+    const nextPacks = exists ? current.filter((id) => id !== packId) : [...current, packId];
+    onUpdateSettings({ ...view.settings, packs: nextPacks });
   };
 
   return (
@@ -82,7 +93,46 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
 
         {isHost && (
           <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div style={{ fontWeight: 700 }}>Настройки партии</div>
+            <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Layers size={18} color="var(--amber)" />
+              Наборы карточек (Паки)
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+              Выберите один набор или оба сразу — тогда карты, катастрофы и бункеры затасуются вместе.
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
+              {packList.map((pack) => {
+                const selected = view.settings.packs.includes(pack.id);
+                return (
+                  <button
+                    key={pack.id}
+                    type="button"
+                    className="card-subtle"
+                    onClick={() => togglePack(pack.id)}
+                    style={{
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      borderColor: selected ? 'var(--amber)' : 'var(--border)',
+                      background: selected ? 'var(--amber-dim)' : 'var(--surface-2)',
+                      color: 'var(--text)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 4,
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <strong style={{ fontSize: 14 }}>{pack.name}</strong>
+                      <span className={`badge ${selected ? 'badge-amber' : ''}`}>
+                        {selected ? 'Выбран' : 'Выкл'}
+                      </span>
+                    </div>
+                    <span style={{ fontSize: 12, color: 'var(--muted)' }}>{pack.description}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div style={{ fontWeight: 700, marginTop: 4 }}>Настройки партии</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12 }}>
               <div>
                 <label style={{ fontSize: 12, color: 'var(--muted)' }}>
@@ -154,8 +204,14 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
         )}
 
         {!isHost && (
-          <div className="card" style={{ textAlign: 'center', color: 'var(--muted)' }}>
-            Ожидаем, пока хост запустит игру…
+          <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center', textAlign: 'center', color: 'var(--muted)' }}>
+            <div>
+              Выбранные наборы:{' '}
+              <strong style={{ color: 'var(--amber)' }}>
+                {view.settings.packs.map((id) => ALL_PACKS[id]?.name).filter(Boolean).join(' + ')}
+              </strong>
+            </div>
+            <div>Ожидаем, пока хост запустит игру…</div>
           </div>
         )}
       </div>

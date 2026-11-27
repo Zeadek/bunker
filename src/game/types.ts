@@ -101,6 +101,18 @@ export interface BunkerInfo {
   cards: BunkerCard[];
 }
 
+export type PackId = 'classic' | 'fantasy';
+
+export interface GamePack {
+  id: PackId;
+  name: string;
+  description: string;
+  catastrophes: Catastrophe[];
+  bunkerFeatures: Array<{ title: string; description: string; isThreat: boolean }>;
+  supplies: string[];
+  traits: Record<TraitCategory, string[]>;
+}
+
 export type GamePhase =
   | 'lobby'
   | 'briefing'
@@ -111,6 +123,7 @@ export type GamePhase =
   | 'game_over';
 
 export interface GameSettings {
+  packs: PackId[];
   maxPlayers: number;
   bunkerSeats: number; // 0 = auto floor(players / 2)
   turnSeconds: number;

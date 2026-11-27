@@ -1,10 +1,8 @@
 import {
-  BUNKER_FEATURES,
-  CATASTROPHES,
+  ALL_PACKS,
   SPECIAL_CARD_TEMPLATES,
-  SUPPLIES_LIST,
-  TRAIT_POOL,
   createSpecialCard,
+  mergePacks,
 } from './data';
 import {
   BunkerCard,
@@ -61,6 +59,7 @@ export function createInitialState(
       totalRounds: 0,
       kicksPerRound: [],
       settings: {
+        packs: ['classic'],
         maxPlayers: 12,
         bunkerSeats: 0,
         turnSeconds: 45,
@@ -188,10 +187,11 @@ export function startGame(state: GameState): { state: GameState; error?: string 
       ? Math.min(state.settings.bunkerSeats, state.players.length - 1)
       : Math.max(1, Math.floor(state.players.length / 2));
 
+  const pool = mergePacks(state.settings.packs);
   const kicksPerRound = computeKicksSchedule(state.players.length, capacity);
-  const catastrophe = shuffle(CATASTROPHES)[0];
-  const supplies = shuffle(SUPPLIES_LIST)[0];
-  const rawFeatures = shuffle(BUNKER_FEATURES).slice(0, 5);
+  const catastrophe = shuffle(pool.catastrophes)[0];
+  const supplies = shuffle(pool.supplies)[0];
+  const rawFeatures = shuffle(pool.bunkerFeatures).slice(0, 5);
   const bunkerCards: BunkerCard[] = rawFeatures.map((f, idx) => ({
     id: uid('bcard'),
     title: f.title,
@@ -202,7 +202,7 @@ export function startGame(state: GameState): { state: GameState; error?: string 
 
   const shuffledPools = {} as Record<TraitCategory, string[]>;
   for (const cat of TRAIT_ORDER) {
-    shuffledPools[cat] = shuffle(TRAIT_POOL[cat]);
+    shuffledPools[cat] = shuffle(pool.traits[cat]);
   }
 
   const players: Player[] = state.players.map((p, idx) => {
@@ -256,9 +256,14 @@ export function startGame(state: GameState): { state: GameState; error?: string 
     lastRoundResult: null,
   };
 
+  const activePackNames = state.settings.packs
+    .map((id) => ALL_PACKS[id]?.name)
+    .filter(Boolean)
+    .join(' + ');
+
   next = addSystemChat(
     next,
-    `Катастрофа: ${catastrophe.title}. Мест в бункере: ${capacity} из ${players.length}.`
+    `Наборы: ${activePackNames || 'Классический'}. Катастрофа: ${catastrophe.title}. Мест в бункере: ${capacity} из ${players.length}.`
   );
   return { state: next };
 }
@@ -666,7 +671,8 @@ export function useSpecialCard(
     }
 
     case 'reroll_profession': {
-      const newProf = shuffle(TRAIT_POOL.profession)[0];
+      const pool = mergePacks(state.settings.packs);
+      const newProf = shuffle(pool.traits.profession)[0];
       updatedPlayers = updatedPlayers.map((p) =>
         p.id === playerId
           ? { ...p, traits: { ...p.traits, profession: { ...p.traits.profession, value: newProf } } }
@@ -677,7 +683,8 @@ export function useSpecialCard(
     }
 
     case 'reroll_luggage': {
-      const newLuggage = shuffle(TRAIT_POOL.luggage)[0];
+      const pool = mergePacks(state.settings.packs);
+      const newLuggage = shuffle(pool.traits.luggage)[0];
       updatedPlayers = updatedPlayers.map((p) =>
         p.id === playerId
           ? { ...p, traits: { ...p.traits, luggage: { ...p.traits.luggage, value: newLuggage } } }
