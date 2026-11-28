@@ -76,6 +76,24 @@ export function App() {
   const comboStateRef = useRef<ComboGameState | null>(null);
   const hostPeerRef = useRef<HostPeerSession | null>(null);
   const clientPeerRef = useRef<ClientPeerSession | null>(null);
+  const prevClassicPhaseRef = useRef<string | null>(null);
+  const prevComboPhaseRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const curPhase = view?.phase ?? null;
+    if (prevClassicPhaseRef.current === 'lobby' && curPhase && curPhase !== 'lobby') {
+      window.scrollTo({ top: 0, behavior: 'auto' });
+    }
+    prevClassicPhaseRef.current = curPhase;
+  }, [view?.phase]);
+
+  useEffect(() => {
+    const curPhase = comboState?.phase ?? null;
+    if (prevComboPhaseRef.current !== curPhase && curPhase && curPhase !== 'lobby') {
+      window.scrollTo({ top: 0, behavior: 'auto' });
+    }
+    prevComboPhaseRef.current = curPhase;
+  }, [comboState?.phase]);
 
   const initialRoomCode =
     new URLSearchParams(window.location.search).get('room')?.toUpperCase() || '';

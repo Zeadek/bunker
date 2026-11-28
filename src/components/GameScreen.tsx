@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { getTraitAbility } from '../game/abilities';
 import { SKIP_VOTE_ID, evaluateBunkerSurvival } from '../game/engine';
+import { TraitText } from './TraitText';
 import {
   GamePhase,
   Player,
@@ -69,12 +70,25 @@ interface GameScreenProps {
 
 const PHASE_TITLES: Record<GamePhase, string> = {
   lobby: 'Лобби',
-  briefing: 'Брифинг катастрофы',
-  reveal: 'Вскрытие характеристик',
-  discussion: 'Общее обсуждение',
-  voting: 'Голосование за изгнание',
+  briefing: 'Брифинг',
+  reveal: 'Вскрытие',
+  discussion: 'Обсуждение',
+  voting: 'Голосование',
   round_result: 'Итоги раунда',
-  game_over: 'Двери бункера закрыты',
+  game_over: 'Финал',
+};
+
+const SHORT_TRAIT_LABELS: Record<TraitCategory, string> = {
+  profession: 'Проф.',
+  biology: 'Биол.',
+  physiology: 'Физиол.',
+  health: 'Здор.',
+  hobby: 'Хобби',
+  gear: 'Багаж',
+  pocket: 'Карман',
+  fact: 'Факт',
+  phobia: 'Фобия',
+  extra: 'Доп.',
 };
 
 export const GameScreen: React.FC<GameScreenProps> = ({
@@ -98,6 +112,13 @@ export const GameScreen: React.FC<GameScreenProps> = ({
   onLeave,
 }) => {
   const [mobileTab, setMobileTab] = useState<'me' | 'players' | 'bunker' | 'chat'>('me');
+  const [rightTab, setRightTab] = useState<'players' | 'bunker' | 'chat'>('bunker');
+  const [isDesktop, setIsDesktop] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth >= 960 : true
+  );
+  const [showExiledDossier, setShowExiledDossier] = useState(false);
+  const [unreadChat, setUnreadChat] = useState(0);
+  const lastSeenChatCountRef = useRef(view.chat.length);
   const [chatInput, setChatInput] = useState('');
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
   const [activeSpecial, setActiveSpecial] = useState<SpecialCard | null>(null);
@@ -140,10 +161,37 @@ export const GameScreen: React.FC<GameScreenProps> = ({
   }, [view.phaseEndsAt]);
 
   useEffect(() => {
-    if (chatScrollRef.current) {
-      chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+    const onResize = () => setIsDesktop(window.innerWidth >= 960);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  useEffect(() => {
+    if (view.phase === 'briefing') setRightTab('bunker');
+    else if (
+      view.phase === 'reveal' ||
+      view.phase === 'voting' ||
+      view.phase === 'round_result' ||
+      view.phase === 'game_over'
+    ) {
+      setRightTab('players');
     }
-  }, [view.chat.length]);
+  }, [view.phase]);
+
+  const isChatOpen = isDesktop ? rightTab === 'chat' : mobileTab === 'chat';
+
+  useEffect(() => {
+    if (isChatOpen) {
+      setUnreadChat(0);
+      lastSeenChatCountRef.current = view.chat.length;
+      if (chatScrollRef.current) {
+        chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+      }
+    } else if (view.chat.length > lastSeenChatCountRef.current) {
+      setUnreadChat((prev) => prev + (view.chat.length - lastSeenChatCountRef.current));
+      lastSeenChatCountRef.current = view.chat.length;
+    }
+  }, [view.chat.length, isChatOpen]);
 
   const me = view.me;
   const isMyTurn = Boolean(me && me.alive && view.currentTurnPlayerId === me.id);
@@ -198,7 +246,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
   };
 
   const renderMySection = () => (
-    <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+    <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, flexWrap: 'wrap' }}>
           <User size={18} color="var(--amber)" />
@@ -207,12 +255,30 @@ export const GameScreen: React.FC<GameScreenProps> = ({
           {me && me.alive && me.voteWeight <= 0 && <span className="badge badge-danger">🤐 Лишён голоса</span>}
           {me && me.alive && me.voteWeight > 1 && <span className="badge badge-amber">Голос ×{me.voteWeight}</span>}
         </div>
-        {isMyTurn && <span className="badge badge-amber">Ваш ход: вскройте карту!</span>}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {isMyTurn && <span className="badge badge-amber">Ваш ход: вскройте карту!</span>}
+          {me && !me.alive && (
+            <button
+              type="button"
+              className="btn btn-outline"
+              style={{ padding: '4px 10px', fontSize: 12 }}
+              onClick={() => setShowExiledDossier((v) => !v)}
+            >
+              {showExiledDossier ? 'Скрыть досье' : 'Показать досье'}
+            </button>
+          )}
+        </div>
       </div>
 
-      {me && (
+      {me && (!me.alive && !showExiledDossier) && (
+        <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+          Вы были изгнаны из бункера. Нажмите «Показать досье», чтобы просмотреть свои характеристики.
+        </div>
+      )}
+
+      {me && (me.alive || showExiledDossier) && (
         <>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(225px, 1fr))', gap: 8 }}>
             {TRAIT_ORDER.map((cat) => {
               const trait = me.traits[cat];
               const isRemoved = Boolean(trait.removed);
@@ -228,7 +294,9 @@ export const GameScreen: React.FC<GameScreenProps> = ({
                   style={{
                     display: 'flex',
                     flexDirection: 'column',
-                    gap: 8,
+                    justifyContent: 'space-between',
+                    gap: 6,
+                    padding: '9px 11px',
                     opacity: isRemoved ? 0.55 : 1,
                     borderColor: isRemoved
                       ? 'rgba(239,68,68,0.3)'
@@ -237,67 +305,75 @@ export const GameScreen: React.FC<GameScreenProps> = ({
                         : undefined,
                   }}
                 >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.4 }}>
                         {TRAIT_LABELS[cat]}
                       </div>
                       <div
                         style={{
-                          fontSize: 14,
+                          fontSize: 13,
                           fontWeight: 600,
+                          lineHeight: 1.35,
                           wordBreak: 'break-word',
                           textDecoration: isRemoved ? 'line-through' : undefined,
+                          marginTop: 2,
                         }}
                       >
-                        {isRemoved ? 'Удалено / Отключено' : trait.value}
+                        {isRemoved ? (
+                          'Удалено / Отключено'
+                        ) : (
+                          <TraitText
+                            text={trait.value}
+                            extraNote={
+                              ability && me.alive && view.phase !== 'game_over'
+                                ? `${ability.title}: ${ability.description}${!trait.revealed && !abilityUsed ? ' (сначала вскройте карту)' : ''}`
+                                : undefined
+                            }
+                          />
+                        )}
                       </div>
                     </div>
                     {isRemoved ? (
-                      <span className="badge badge-danger" style={{ flexShrink: 0 }}>
+                      <span className="badge badge-danger" style={{ flexShrink: 0, fontSize: 11 }}>
                         Удалено
                       </span>
                     ) : trait.revealed || view.phase === 'game_over' ? (
-                      <span className="badge badge-ok" style={{ flexShrink: 0 }}>
-                        <Eye size={13} /> {trait.revealed ? 'Вскрыто' : 'Открыто'}
+                      <span className="badge badge-ok" style={{ flexShrink: 0, fontSize: 11 }}>
+                        <Eye size={12} /> {trait.revealed ? 'Вскрыто' : 'Открыто'}
                       </span>
                     ) : canReveal ? (
                       <button
                         className="btn btn-primary"
-                        style={{ padding: '7px 12px', fontSize: 12, flexShrink: 0 }}
+                        style={{ padding: '5px 10px', fontSize: 11, flexShrink: 0 }}
                         onClick={() => onRevealTrait(cat)}
                       >
                         Вскрыть
                       </button>
                     ) : (
-                      <span className="badge" style={{ flexShrink: 0 }}>Скрыто</span>
+                      <span className="badge" style={{ flexShrink: 0, fontSize: 11 }}>Скрыто</span>
                     )}
                   </div>
 
                   {ability && me.alive && view.phase !== 'game_over' && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, borderTop: '1px solid var(--border)', paddingTop: 6 }}>
-                      <span style={{ fontSize: 11, color: 'var(--muted)' }}>
-                        {ability.description}
-                        {!trait.revealed && !abilityUsed && ' (сначала вскройте эту характеристику)'}
-                      </span>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid var(--border)', paddingTop: 5 }}>
                       {abilityUsed ? (
-                        <span className="badge" style={{ flexShrink: 0 }}>Использовано</span>
+                        <span className="badge" style={{ fontSize: 11 }}>Способность использована</span>
                       ) : (
                         <button
                           className="btn btn-outline"
                           disabled={!trait.revealed}
                           title={!trait.revealed ? 'Сначала вскройте эту характеристику' : ability.description}
                           style={{
-                            padding: '5px 10px',
-                            fontSize: 12,
-                            flexShrink: 0,
+                            padding: '4px 9px',
+                            fontSize: 11,
                             borderColor: trait.revealed ? 'var(--amber)' : 'var(--border)',
                             color: trait.revealed ? 'var(--amber)' : 'var(--muted)',
                             opacity: trait.revealed ? 1 : 0.55,
                           }}
                           onClick={() => openAbilityModal(cat, ability)}
                         >
-                          <Zap size={13} /> {ability.title}
+                          <Zap size={12} /> {ability.title}
                         </button>
                       )}
                     </div>
@@ -423,98 +499,114 @@ export const GameScreen: React.FC<GameScreenProps> = ({
         )}
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {view.players.map((p) => {
-          const isTurn = view.phase === 'reveal' && view.currentTurnPlayerId === p.id;
-          const canVoteFor =
-            view.phase === 'voting' &&
-            me?.alive &&
-            me.voteWeight > 0 &&
-            p.alive &&
-            p.id !== me.id &&
-            !view.myVote &&
-            (view.tiedCandidates.length === 0 || view.tiedCandidates.includes(p.id));
+      {view.phase === 'briefing' &&
+      view.players.every((p) => p.revealedCount === 0 && p.revealedBonusTraits.length === 0 && p.removedCategories.length === 0) ? (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          {view.players.map((p) => (
+            <div key={p.id} className="card-subtle" style={{ padding: '7px 11px', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontWeight: 700, fontSize: 13 }}>{p.name}</span>
+              {p.id === me?.id && <span className="badge">Вы</span>}
+              {p.isBot && <span className="badge">🤖 БОТ{p.isEasterEgg ? ' ★' : ''}</span>}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {view.players.map((p) => {
+            const isTurn = view.phase === 'reveal' && view.currentTurnPlayerId === p.id;
+            const canVoteFor =
+              view.phase === 'voting' &&
+              me?.alive &&
+              me.voteWeight > 0 &&
+              p.alive &&
+              p.id !== me.id &&
+              !view.myVote &&
+              (view.tiedCandidates.length === 0 || view.tiedCandidates.includes(p.id));
 
-          return (
-            <div
-              key={p.id}
-              className="card-subtle"
-              style={{
-                opacity: p.alive ? 1 : 0.55,
-                borderColor: isTurn ? 'var(--amber)' : undefined,
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <span style={{ fontWeight: 700 }}>{p.name}</span>
-                  {p.id === me?.id && <span className="badge">Вы</span>}
-                  {p.isBot && (
-                    <span className="badge">
-                      🤖 БОТ{p.isEasterEgg ? ' ★' : ''}
-                    </span>
+            return (
+              <div
+                key={p.id}
+                className="card-subtle"
+                style={{
+                  opacity: p.alive ? 1 : 0.55,
+                  borderColor: isTurn ? 'var(--amber)' : undefined,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <span style={{ fontWeight: 700 }}>{p.name}</span>
+                    {p.id === me?.id && <span className="badge">Вы</span>}
+                    {p.isBot && (
+                      <span className="badge">
+                        🤖 БОТ{p.isEasterEgg ? ' ★' : ''}
+                      </span>
+                    )}
+                    {p.hasImmunity && (
+                      <span className="badge badge-ok">
+                        <Shield size={12} /> Иммунитет
+                      </span>
+                    )}
+                    {p.silenced && <span className="badge badge-danger">🤐 Лишён голоса</span>}
+                    {view.phase === 'voting' && view.votedPlayerIds.includes(p.id) && (
+                      <span className="badge badge-ok">✓ Голос отдан</span>
+                    )}
+                    {!p.alive && <span className="badge badge-danger">Изгнан</span>}
+                    {!p.connected && <span className="badge">Офлайн</span>}
+                    {isTurn && <span className="badge badge-amber">Ходит</span>}
+                  </div>
+
+                  {canVoteFor && (
+                    <button
+                      className="btn btn-danger"
+                      disabled={p.hasImmunity}
+                      title={p.hasImmunity ? 'У игрока иммунитет' : 'Проголосовать за изгнание'}
+                      style={{ padding: '6px 12px', fontSize: 12 }}
+                      onClick={() => onCastVote(p.id)}
+                    >
+                      <Vote size={14} /> Изгнать
+                    </button>
                   )}
-                  {p.hasImmunity && (
-                    <span className="badge badge-ok">
-                      <Shield size={12} /> Иммунитет
-                    </span>
-                  )}
-                  {p.silenced && <span className="badge badge-danger">🤐 Лишён голоса</span>}
-                  {view.phase === 'voting' && view.votedPlayerIds.includes(p.id) && (
-                    <span className="badge badge-ok">✓ Голос отдан</span>
-                  )}
-                  {!p.alive && <span className="badge badge-danger">Изгнан</span>}
-                  {!p.connected && <span className="badge">Офлайн</span>}
-                  {isTurn && <span className="badge badge-amber">Ходит</span>}
+                  {view.myVote === p.id && <span className="badge badge-danger">Ваш голос</span>}
                 </div>
 
-                {canVoteFor && (
-                  <button
-                    className="btn btn-danger"
-                    style={{ padding: '6px 12px', fontSize: 12 }}
-                    onClick={() => onCastVote(p.id)}
-                  >
-                    <Vote size={14} /> Изгнать
-                  </button>
-                )}
-                {view.myVote === p.id && <span className="badge badge-danger">Ваш голос</span>}
-              </div>
-
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {TRAIT_ORDER.map((cat) => {
-                  if (p.removedCategories.includes(cat)) {
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {TRAIT_ORDER.map((cat) => {
+                    if (p.removedCategories.includes(cat)) {
+                      return (
+                        <span
+                          key={cat}
+                          className="badge"
+                          style={{ opacity: 0.5, textDecoration: 'line-through' }}
+                        >
+                          {SHORT_TRAIT_LABELS[cat]}: удалено
+                        </span>
+                      );
+                    }
+                    const val = p.revealedTraits[cat];
+                    if (!val) return null;
                     return (
-                      <span
-                        key={cat}
-                        className="badge"
-                        style={{ opacity: 0.5, textDecoration: 'line-through' }}
-                      >
-                        {TRAIT_LABELS[cat]}: удалено
+                      <span key={cat} className="badge" style={{ color: 'var(--text)', whiteSpace: 'normal' }}>
+                        <strong style={{ color: 'var(--amber)' }}>{SHORT_TRAIT_LABELS[cat]}:</strong>{' '}
+                        <TraitText text={val} />
                       </span>
                     );
-                  }
-                  const val = p.revealedTraits[cat];
-                  if (!val) return null;
-                  return (
-                    <span key={cat} className="badge" style={{ color: 'var(--text)', whiteSpace: 'normal' }}>
-                      <strong style={{ color: 'var(--amber)' }}>{TRAIT_LABELS[cat]}:</strong> {val}
+                  })}
+                  {p.revealedBonusTraits.map((bt) => (
+                    <span key={bt.id} className="badge badge-ok" style={{ color: 'var(--text)', whiteSpace: 'normal' }}>
+                      <strong style={{ color: '#34d399' }}>{bt.label}:</strong> <TraitText text={bt.value} />
                     </span>
-                  );
-                })}
-                {p.revealedBonusTraits.map((bt) => (
-                  <span key={bt.id} className="badge badge-ok" style={{ color: 'var(--text)', whiteSpace: 'normal' }}>
-                    <strong style={{ color: '#34d399' }}>{bt.label}:</strong> {bt.value}
-                  </span>
-                ))}
-                {p.revealedCount === 0 && p.revealedBonusTraits.length === 0 && p.removedCategories.length === 0 && (
-                  <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                    Характеристики ещё не вскрыты
-                  </span>
-                )}
+                  ))}
+                  {p.revealedCount === 0 && p.revealedBonusTraits.length === 0 && p.removedCategories.length === 0 && (
+                    <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                      Характеристики ещё не вскрыты
+                    </span>
+                  )}
+                </div>
               </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 
@@ -534,127 +626,73 @@ export const GameScreen: React.FC<GameScreenProps> = ({
         </div>
       )}
 
-      {view.bunker && (
-        <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div>
-            <div style={{ fontWeight: 800, fontSize: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Shield size={18} color="var(--amber)" />
-              {view.bunker.title}
-            </div>
-            <div style={{ fontSize: 12, color: 'var(--amber)', marginTop: 2 }}>
-              📍 {view.bunker.location}
-            </div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
-              Площадь: <strong style={{ color: 'var(--text)' }}>{view.bunker.areaSqm} м²</strong> • Мест:{' '}
-              <strong style={{ color: 'var(--text)' }}>{view.bunker.capacity}</strong>
-            </div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-              {view.bunker.layoutNote}
-            </div>
-          </div>
-
-          {/* 4 Progress Bars */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
-            {(
-              [
-                { key: 'energy', label: '⚡ Энергия', value: view.bunker.stats.energy },
-                { key: 'supplies', label: '🥫 Припасы', value: view.bunker.stats.supplies },
-                { key: 'defense', label: '🛡️ Оборона', value: view.bunker.stats.defense },
-                { key: 'morale', label: '🧠 Мораль', value: view.bunker.stats.morale },
-              ] as const
-            ).map((st) => {
-              const barColor =
-                st.value >= 65 ? '#34d399' : st.value >= 35 ? '#f59e0b' : '#ef4444';
-              return (
-                <div key={st.key} className="card-subtle" style={{ padding: '8px 10px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
-                    <span>{st.label}</span>
-                    <strong className="mono" style={{ color: barColor }}>{st.value}%</strong>
-                  </div>
-                  <div style={{ height: 6, borderRadius: 99, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
-                    <div
-                      style={{
-                        width: `${Math.max(0, Math.min(100, st.value))}%`,
-                        height: '100%',
-                        background: barColor,
-                        transition: 'width 0.25s ease',
-                      }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          <div style={{ fontSize: 13, color: 'var(--muted)' }}>
-            <strong style={{ color: 'var(--text)' }}>Припасы:</strong> {view.bunker.supplies}
-          </div>
-
-          {/* Bunker Rooms */}
-          {view.bunker.rooms && view.bunker.rooms.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--amber)', textTransform: 'uppercase' }}>
-                Отсеки бункера ({view.bunker.rooms.length})
+      {view.bunker && (() => {
+        const visibleCards = view.bunker.cards.filter((bc) => bc.revealed || view.phase === 'game_over');
+        const hiddenCount = view.bunker.cards.length - visibleCards.length;
+        return (
+          <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Shield size={18} color="var(--amber)" />
+                {view.bunker.title}
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 6 }}>
-                {view.bunker.rooms.map((rm) => {
-                  const statusLabel =
-                    rm.status === 'ok'
-                      ? 'Исправен'
-                      : rm.status === 'damaged'
-                        ? 'Повреждён'
-                        : 'Заблокирован';
-                  const statusClass =
-                    rm.status === 'ok'
-                      ? 'badge-ok'
-                      : rm.status === 'damaged'
-                        ? 'badge-danger'
-                        : 'badge-amber';
+              <div style={{ fontSize: 12, color: 'var(--amber)', marginTop: 2 }}>
+                📍 {view.bunker.location}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                Площадь: <strong style={{ color: 'var(--text)' }}>{view.bunker.areaSqm} м²</strong> • Мест:{' '}
+                <strong style={{ color: 'var(--text)' }}>{view.bunker.capacity}</strong>
+              </div>
+              <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 6 }}>
+                <strong style={{ color: 'var(--text)' }}>Припасы:</strong> {view.bunker.supplies}
+              </div>
+            </div>
+
+            {/* Revealed Bunker Event/Feature Cards + Hidden Counter */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>
+                  Особенности и угрозы
+                </span>
+                {hiddenCount > 0 && (
+                  <span className="badge">🔒 Скрытых карт бункера: {hiddenCount}</span>
+                )}
+              </div>
+
+              {visibleCards.length === 0 ? (
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                  Вскрытых карт бункера пока нет — они открываются по ходу раундов или разведкой.
+                </div>
+              ) : (
+                visibleCards.map((bc) => {
+                  const isResolved = bc.title.startsWith('Устранено:');
                   return (
-                    <div key={rm.id} className="card-subtle" style={{ padding: '8px 10px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                        <strong style={{ fontSize: 12 }}>{rm.name}</strong>
-                        <span className={`badge ${statusClass}`} style={{ flexShrink: 0 }}>
-                          {statusLabel}
-                        </span>
+                    <div
+                      key={bc.id}
+                      className="card-subtle"
+                      style={{
+                        borderColor: bc.isThreat && !isResolved ? 'rgba(239,68,68,0.4)' : undefined,
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, gap: 8 }}>
+                        <span style={{ fontWeight: 700, fontSize: 13 }}>{bc.title}</span>
+                        {isResolved ? (
+                          <span className="badge badge-ok">Устранено</span>
+                        ) : (
+                          <span className={`badge ${bc.isThreat ? 'badge-danger' : 'badge-ok'}`}>
+                            {bc.isThreat ? 'Угроза' : 'Ресурс'}
+                          </span>
+                        )}
                       </div>
-                      <div style={{ fontSize: 11, color: 'var(--muted)' }}>{rm.effect}</div>
+                      <div style={{ fontSize: 12, color: 'var(--muted)' }}>{bc.description}</div>
                     </div>
                   );
-                })}
-              </div>
+                })
+              )}
             </div>
-          )}
-
-          {/* Bunker Event/Feature Cards */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>
-              Особенности и угрозы
-            </div>
-            {view.bunker.cards.map((bc) => (
-              <div
-                key={bc.id}
-                className="card-subtle"
-                style={{
-                  borderColor: (bc.revealed || view.phase === 'game_over') && bc.isThreat ? 'rgba(239,68,68,0.4)' : undefined,
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                  <span style={{ fontWeight: 700, fontSize: 13 }}>{bc.title}</span>
-                  {bc.revealed || view.phase === 'game_over' ? (
-                    <span className={`badge ${bc.isThreat ? 'badge-danger' : 'badge-ok'}`}>
-                      {bc.isThreat ? 'Угроза' : 'Ресурс'}
-                    </span>
-                  ) : (
-                    <span className="badge">Скрыто</span>
-                  )}
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--muted)' }}>{bc.description}</div>
-              </div>
-            ))}
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 
@@ -715,69 +753,126 @@ export const GameScreen: React.FC<GameScreenProps> = ({
     </div>
   );
 
+  const eligibleVotersCount = view.players.filter((p) => p.alive && !p.silenced).length;
+  const allVotesCollected = eligibleVotersCount > 0 && view.votedPlayerIds.length >= eligibleVotersCount;
+  const latestSystemEvent = [...view.chat].reverse().find((m) => m.isSystem)?.text ?? null;
+  const needsVoteAction = Boolean(view.phase === 'voting' && me?.alive && me.voteWeight > 0 && !view.myVote);
+
   return (
     <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
       <div className="hazard-bar" />
 
-      <div className="container" style={{ display: 'flex', flexDirection: 'column', gap: 14, flex: 1 }}>
-        {/* Header Bar */}
-        <div className="card" style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <span className="mono badge badge-amber">КОД {view.roomCode}</span>
-            <span className="badge">Раунд {view.round}/{view.totalRounds}</span>
+      {/* Sticky Compact Header */}
+      <div
+        style={{
+          position: 'sticky',
+          top: 0,
+          zIndex: 30,
+          background: 'rgba(11, 15, 20, 0.88)',
+          backdropFilter: 'blur(10px)',
+          borderBottom: '1px solid var(--border)',
+        }}
+      >
+        <div
+          className="container"
+          style={{
+            padding: '10px 16px',
+            display: 'flex',
+            flexWrap: 'wrap',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <span className="mono badge badge-amber">#{view.roomCode}</span>
+            <span className="badge">Р{view.round}/{view.totalRounds}</span>
             <span className="badge badge-ok">{PHASE_TITLES[view.phase]}</span>
             {secondsLeft !== null && (
               <span className="badge badge-amber mono">
-                <Clock size={13} /> {secondsLeft}с
+                <Clock size={12} /> {secondsLeft}с
               </span>
             )}
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             {isHost && view.phase === 'briefing' && (
-              <button className="btn btn-primary" onClick={onHostNextPhase}>
+              <button className="btn btn-primary" style={{ padding: '7px 12px', fontSize: 13 }} onClick={onHostNextPhase}>
                 Начать вскрытие
               </button>
             )}
             {isHost && view.phase === 'reveal' && (
-              <button className="btn btn-outline" onClick={onHostAutoReveal}>
+              <button className="btn btn-outline" style={{ padding: '7px 12px', fontSize: 13 }} onClick={onHostAutoReveal}>
                 Автоход ({currentTurnPlayer?.name ?? 'игрок'})
               </button>
             )}
             {isHost && view.phase === 'discussion' && (
-              <button className="btn btn-primary" onClick={onHostNextPhase}>
+              <button className="btn btn-primary" style={{ padding: '7px 12px', fontSize: 13 }} onClick={onHostNextPhase}>
                 {view.kicksThisRound > 0 ? 'К голосованию' : 'Завершить раунд'}
               </button>
             )}
             {isHost && view.phase === 'voting' && (
-              <button className="btn btn-danger" onClick={onHostNextPhase}>
+              <button
+                className={`btn ${allVotesCollected ? 'btn-danger' : 'btn-outline'}`}
+                style={{ padding: '7px 12px', fontSize: 13 }}
+                onClick={onHostNextPhase}
+              >
                 Подвести итоги
               </button>
             )}
             {isHost && view.phase === 'round_result' && (
-              <button className="btn btn-primary" onClick={onHostNextPhase}>
+              <button className="btn btn-primary" style={{ padding: '7px 12px', fontSize: 13 }} onClick={onHostNextPhase}>
                 Следующий раунд
               </button>
             )}
             {isHost && view.phase === 'game_over' && (
-              <button className="btn btn-primary" onClick={onHostPlayAgain}>
-                <RotateCcw size={15} /> Сыграть ещё
+              <button className="btn btn-primary" style={{ padding: '7px 12px', fontSize: 13 }} onClick={onHostPlayAgain}>
+                <RotateCcw size={14} /> Сыграть ещё
               </button>
             )}
             {isHost && (
               <button
                 className="btn btn-outline"
+                style={{ padding: '7px 10px', fontSize: 13 }}
                 onClick={openMasterPanel}
                 title="Мастер-панель (редактор слотов игроков)"
               >
-                <SlidersHorizontal size={15} /> Редактор
+                <SlidersHorizontal size={14} /> Редактор
               </button>
             )}
-            <button className="btn btn-outline" onClick={onLeave} title="Выйти" aria-label="Выйти из комнаты">
-              <LogOut size={16} />
+            <button
+              className="btn btn-outline"
+              style={{ padding: '7px 10px' }}
+              onClick={onLeave}
+              title="Выйти"
+              aria-label="Выйти из комнаты"
+            >
+              <LogOut size={15} />
             </button>
           </div>
         </div>
+      </div>
+
+      <div className="container game-container" style={{ display: 'flex', flexDirection: 'column', gap: 12, flex: 1 }}>
+        {/* 1-line System Event Ticker */}
+        {latestSystemEvent && (
+          <div
+            style={{
+              padding: '7px 12px',
+              borderRadius: 9,
+              background: 'rgba(245, 158, 11, 0.08)',
+              border: '1px solid rgba(245, 158, 11, 0.25)',
+              fontSize: 12,
+              color: 'var(--amber)',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+            title={latestSystemEvent}
+          >
+            ⚡ {latestSystemEvent}
+          </div>
+        )}
 
         {/* Phase / Result Banner */}
         {errorText && (
@@ -874,20 +969,72 @@ export const GameScreen: React.FC<GameScreenProps> = ({
           );
         })()}
 
-        {/* Desktop 2-column / Mobile tabbed content */}
+        {/* Desktop 2-column (with right-column tabs) / Mobile tabbed content */}
         <div className="game-layout">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div className={mobileTab === 'me' ? '' : 'desktop-only-block'}>
-              {(mobileTab === 'me' || window.innerWidth >= 960) && renderMySection()}
-            </div>
-            <div className={mobileTab === 'chat' ? '' : 'desktop-only-block'}>
-              {(mobileTab === 'chat' || window.innerWidth >= 960) && renderChatSection()}
-            </div>
+            {(isDesktop || mobileTab === 'me') && renderMySection()}
+            {!isDesktop && mobileTab === 'chat' && renderChatSection()}
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            {(mobileTab === 'players' || window.innerWidth >= 960) && renderPlayersSection()}
-            {(mobileTab === 'bunker' || window.innerWidth >= 960) && renderBunkerSection()}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {isDesktop && (
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(3, 1fr)',
+                  gap: 6,
+                  background: 'var(--surface)',
+                  padding: 6,
+                  borderRadius: 12,
+                  border: '1px solid var(--border)',
+                }}
+              >
+                <button
+                  type="button"
+                  className={`btn ${rightTab === 'players' ? 'btn-primary' : 'btn-outline'}`}
+                  style={{ padding: '7px 10px', fontSize: 12, position: 'relative' }}
+                  onClick={() => setRightTab('players')}
+                >
+                  <Users size={14} /> Игроки
+                  {needsVoteAction && (
+                    <span
+                      style={{
+                        width: 7,
+                        height: 7,
+                        borderRadius: 999,
+                        background: '#ef4444',
+                        display: 'inline-block',
+                      }}
+                    />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  className={`btn ${rightTab === 'bunker' ? 'btn-primary' : 'btn-outline'}`}
+                  style={{ padding: '7px 10px', fontSize: 12 }}
+                  onClick={() => setRightTab('bunker')}
+                >
+                  <Shield size={14} /> Бункер
+                </button>
+                <button
+                  type="button"
+                  className={`btn ${rightTab === 'chat' ? 'btn-primary' : 'btn-outline'}`}
+                  style={{ padding: '7px 10px', fontSize: 12 }}
+                  onClick={() => setRightTab('chat')}
+                >
+                  <MessageSquare size={14} /> Чат
+                  {unreadChat > 0 && (
+                    <span className="badge badge-danger" style={{ padding: '1px 6px', fontSize: 10 }}>
+                      {unreadChat}
+                    </span>
+                  )}
+                </button>
+              </div>
+            )}
+
+            {(isDesktop ? rightTab === 'players' : mobileTab === 'players') && renderPlayersSection()}
+            {(isDesktop ? rightTab === 'bunker' : mobileTab === 'bunker') && renderBunkerSection()}
+            {isDesktop && rightTab === 'chat' && renderChatSection()}
           </div>
         </div>
 
@@ -895,17 +1042,23 @@ export const GameScreen: React.FC<GameScreenProps> = ({
         <div className="mobile-tabs">
           <button
             className={`btn ${mobileTab === 'me' ? 'btn-primary' : 'btn-outline'}`}
-            style={{ padding: '8px 4px', fontSize: 12 }}
+            style={{ padding: '8px 4px', fontSize: 12, position: 'relative' }}
             onClick={() => setMobileTab('me')}
           >
             <User size={15} /> Карта
+            {isMyTurn && (
+              <span style={{ width: 7, height: 7, borderRadius: 999, background: '#10b981', display: 'inline-block' }} />
+            )}
           </button>
           <button
             className={`btn ${mobileTab === 'players' ? 'btn-primary' : 'btn-outline'}`}
-            style={{ padding: '8px 4px', fontSize: 12 }}
+            style={{ padding: '8px 4px', fontSize: 12, position: 'relative' }}
             onClick={() => setMobileTab('players')}
           >
             <Users size={15} /> Игроки
+            {needsVoteAction && (
+              <span style={{ width: 7, height: 7, borderRadius: 999, background: '#ef4444', display: 'inline-block' }} />
+            )}
           </button>
           <button
             className={`btn ${mobileTab === 'bunker' ? 'btn-primary' : 'btn-outline'}`}
@@ -916,10 +1069,13 @@ export const GameScreen: React.FC<GameScreenProps> = ({
           </button>
           <button
             className={`btn ${mobileTab === 'chat' ? 'btn-primary' : 'btn-outline'}`}
-            style={{ padding: '8px 4px', fontSize: 12 }}
+            style={{ padding: '8px 4px', fontSize: 12, position: 'relative' }}
             onClick={() => setMobileTab('chat')}
           >
             <MessageSquare size={15} /> Чат
+            {unreadChat > 0 && (
+              <span style={{ width: 7, height: 7, borderRadius: 999, background: '#f59e0b', display: 'inline-block' }} />
+            )}
           </button>
         </div>
       </div>

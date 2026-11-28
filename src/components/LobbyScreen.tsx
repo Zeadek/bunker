@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Check, Copy, Eye, Layers, LogOut, Play, Users, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, Copy, Eye, Layers, LogOut, Play, Settings, Users, X } from 'lucide-react';
 import { getAbilityShortBadge } from '../game/abilities';
 import { ALL_PACKS, SPECIAL_CARD_TEMPLATES } from '../game/data';
 import {
@@ -40,6 +40,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   const [inspectFilter, setInspectFilter] = useState<'all' | 'adult'>('all');
   const [newFieldLabel, setNewFieldLabel] = useState('');
   const [newFieldPool, setNewFieldPool] = useState('');
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -108,7 +109,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   return (
     <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
       <div className="hazard-bar" />
-      <div className="container" style={{ maxWidth: 760, display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div className="container" style={{ maxWidth: 1120, display: 'flex', flexDirection: 'column', gap: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <div style={{ fontSize: 12, color: 'var(--muted)' }}>ЛОББИ БУНКЕРА</div>
@@ -144,29 +145,31 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
           </div>
         )}
 
-        <div className="card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700 }}>
-              <Users size={18} color="var(--amber)" />
-              Игроки ({view.players.length} / {view.settings.maxPlayers})
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              {isHost && onAddBot && (
-                <button
-                  type="button"
-                  className="btn btn-outline"
-                  style={{ padding: '5px 10px', fontSize: 12 }}
-                  disabled={view.players.length >= view.settings.maxPlayers}
-                  onClick={onAddBot}
-                >
-                  + Бот
-                </button>
-              )}
-              <span className="badge badge-ok">P2P Активно</span>
-            </div>
-          </div>
+        <div className="lobby-layout">
+          <div className="lobby-col">
+            <div className="card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700 }}>
+                  <Users size={18} color="var(--amber)" />
+                  Игроки ({view.players.length} / {view.settings.maxPlayers})
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {isHost && onAddBot && (
+                    <button
+                      type="button"
+                      className="btn btn-outline"
+                      style={{ padding: '5px 10px', fontSize: 12 }}
+                      disabled={view.players.length >= view.settings.maxPlayers}
+                      onClick={onAddBot}
+                    >
+                      + Бот
+                    </button>
+                  )}
+                  <span className="badge badge-ok">P2P Активно</span>
+                </div>
+              </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 10 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 10 }}>
             {view.players.map((p) => (
               <div
                 key={p.id}
@@ -221,292 +224,316 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             </div>
           </div>
 
-          <button className="btn btn-outline" onClick={() => setShowPackModal(true)}>
-            <Layers size={16} />
-            {isHost ? 'Выбрать / Состав' : 'Посмотреть состав'}
-          </button>
-        </div>
-
-        {isHost && (
-          <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div style={{ fontWeight: 700 }}>Настройки партии</div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-              <span style={{ fontSize: 12, color: 'var(--muted)' }}>Режим игры:</span>
-              {(
-                [
-                  { id: 'classic', label: '🛡️ Классический Бункер' },
-                  { id: 'combo', label: '⚡ Combo Draft (Балатро-Бункер)' },
-                ] as const
-              ).map((mode) => {
-                const active = (view.settings.gameMode ?? 'classic') === mode.id;
-                return (
-                  <button
-                    key={mode.id}
-                    type="button"
-                    className={`btn ${active ? 'btn-primary' : 'btn-outline'}`}
-                    style={{ padding: '6px 12px', fontSize: 13 }}
-                    onClick={() =>
-                      onUpdateSettings({
-                        ...view.settings,
-                        gameMode: mode.id,
-                        comboRounds: view.settings.comboRounds ?? 5,
-                      })
-                    }
-                  >
-                    {mode.label}
-                  </button>
-                );
-              })}
+              <button className="btn btn-outline" onClick={() => setShowPackModal(true)}>
+                <Layers size={16} />
+                {isHost ? 'Выбрать / Состав' : 'Посмотреть состав'}
+              </button>
             </div>
-            {(view.settings.gameMode ?? 'classic') === 'combo' && (
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 12, color: 'var(--muted)' }}>Раундов в Combo Draft:</span>
-                {[3, 5, 7].map((cnt) => (
-                  <button
-                    key={cnt}
-                    type="button"
-                    className={`btn ${(view.settings.comboRounds ?? 5) === cnt ? 'btn-primary' : 'btn-outline'}`}
-                    style={{ padding: '4px 10px', fontSize: 12 }}
-                    onClick={() => onUpdateSettings({ ...view.settings, comboRounds: cnt })}
-                  >
-                    {cnt} раундов
-                  </button>
-                ))}
+
+            {isHost ? (
+              <button
+                className="btn btn-primary"
+                style={{ width: '100%', padding: '14px 16px', fontSize: 15 }}
+                disabled={view.players.length < 1}
+                onClick={onStartGame}
+              >
+                <Play size={18} />
+                {view.players.length === 1
+                  ? 'Начать игру (Соло-тест)'
+                  : `Начать игру (${view.players.length} игр.)`}
+              </button>
+            ) : (
+              <div className="card" style={{ textAlign: 'center', color: 'var(--muted)' }}>
+                Ожидаем, пока хост запустит игру…
               </div>
             )}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
-              <div>
-                <label style={{ fontSize: 12, color: 'var(--muted)' }}>
-                  Мест в бункере (0 = авто {Math.max(1, Math.floor(view.players.length / 2))})
-                </label>
-                <input
-                  className="input"
-                  type="number"
-                  min={0}
-                  max={Math.max(1, view.players.length - 1)}
-                  value={view.settings.bunkerSeats}
-                  onChange={(e) =>
-                    onUpdateSettings({
-                      ...view.settings,
-                      bunkerSeats: Math.max(0, Number(e.target.value) || 0),
-                    })
-                  }
-                />
-              </div>
-              <div>
-                <label style={{ fontSize: 12, color: 'var(--muted)' }}>Спецкарт на игрока (0–5)</label>
-                <input
-                  className="input"
-                  type="number"
-                  min={0}
-                  max={5}
-                  value={view.settings.specialCardsPerPlayer ?? 2}
-                  onChange={(e) =>
-                    onUpdateSettings({
-                      ...view.settings,
-                      specialCardsPerPlayer: Math.max(0, Math.min(5, Number(e.target.value) || 0)),
-                    })
-                  }
-                />
-              </div>
-              <div>
-                <label style={{ fontSize: 12, color: 'var(--muted)' }}>Таймер хода (сек, 0 = без)</label>
-                <input
-                  className="input"
-                  type="number"
-                  min={0}
-                  max={300}
-                  value={view.settings.turnSeconds}
-                  onChange={(e) =>
-                    onUpdateSettings({
-                      ...view.settings,
-                      turnSeconds: Math.max(0, Number(e.target.value) || 0),
-                    })
-                  }
-                />
-              </div>
-              <div>
-                <label style={{ fontSize: 12, color: 'var(--muted)' }}>Обсуждение (сек)</label>
-                <input
-                  className="input"
-                  type="number"
-                  min={0}
-                  max={600}
-                  value={view.settings.discussionSeconds}
-                  onChange={(e) =>
-                    onUpdateSettings({
-                      ...view.settings,
-                      discussionSeconds: Math.max(0, Number(e.target.value) || 0),
-                    })
-                  }
-                />
-              </div>
-            </div>
+          </div>
 
-            {/* 18+ toggle & intensity */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <label
-                className="card-subtle"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 12,
-                  cursor: 'pointer',
-                  borderColor: view.settings.enableAdultContent ? 'rgba(239,68,68,0.5)' : undefined,
-                }}
-              >
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: 14 }}>🔞 18+ карточки в паке</div>
-                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                    Добавляет чёрный юмор, жёсткие сюжеты, компромат и 18+ спецкарты во все категории.
-                  </div>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={Boolean(view.settings.enableAdultContent)}
-                  onChange={(e) =>
-                    onUpdateSettings({
-                      ...view.settings,
-                      enableAdultContent: e.target.checked,
-                      adultIntensity: view.settings.adultIntensity ?? 'mixed',
-                    })
-                  }
-                  style={{ width: 20, height: 20, accentColor: '#ef4444', flexShrink: 0 }}
-                />
-              </label>
-
-              {view.settings.enableAdultContent && (
-                <div className="card-subtle" style={{ display: 'flex', flexDirection: 'column', gap: 6, borderColor: 'rgba(239,68,68,0.35)' }}>
-                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>Доля 18+ карточек в раздаче:</div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                    {(
-                      [
-                        { id: 'mixed', label: 'Смешанно (обычно)' },
-                        { id: 'high', label: 'Чаще 18+ (×4)' },
-                        { id: 'only', label: 'Приоритет 18+ (максимум)' },
-                      ] as Array<{ id: AdultIntensity; label: string }>
-                    ).map((opt) => {
-                      const active = (view.settings.adultIntensity ?? 'mixed') === opt.id;
-                      return (
-                        <button
-                          key={opt.id}
-                          type="button"
-                          className={`btn ${active ? 'btn-danger' : 'btn-outline'}`}
-                          style={{ padding: '5px 10px', fontSize: 12 }}
-                          onClick={() =>
-                            onUpdateSettings({ ...view.settings, adultIntensity: opt.id })
-                          }
-                        >
-                          {opt.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Enabled trait categories */}
-            <div>
-              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>
-                Активные поля персонажей (нажмите, чтобы отключить лишние):
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {TRAIT_ORDER.map((cat) => {
-                  const active = (view.settings.enabledTraits ?? TRAIT_ORDER).includes(cat);
-                  return (
-                    <button
-                      key={cat}
-                      type="button"
-                      className={`badge ${active ? 'badge-amber' : ''}`}
-                      style={{ cursor: 'pointer', opacity: active ? 1 : 0.45 }}
-                      onClick={() => toggleTrait(cat)}
-                    >
-                      {TRAIT_LABELS[cat]}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Custom fields */}
-            <div className="card-subtle" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div style={{ fontWeight: 700, fontSize: 13 }}>Кастомные поля (доп. характеристики)</div>
-              {(view.settings.customFields ?? []).length > 0 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {view.settings.customFields.map((cf) => (
-                    <div
-                      key={cf.id}
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        gap: 8,
-                        fontSize: 12,
-                        padding: '4px 8px',
-                        background: 'rgba(255,255,255,0.03)',
-                        borderRadius: 6,
-                      }}
-                    >
-                      <span>
-                        <strong>{cf.label}</strong> ({cf.pool.length} вар.)
-                      </span>
+          {isHost && (
+            <div className="lobby-col">
+              <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div style={{ fontWeight: 700 }}>Настройки партии</div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <span style={{ fontSize: 12, color: 'var(--muted)' }}>Режим игры:</span>
+                  {(
+                    [
+                      { id: 'classic', label: '🛡️ Классический Бункер' },
+                      { id: 'combo', label: '⚡ Combo Draft (Балатро-Бункер)' },
+                    ] as const
+                  ).map((mode) => {
+                    const active = (view.settings.gameMode ?? 'classic') === mode.id;
+                    return (
                       <button
+                        key={mode.id}
                         type="button"
-                        className="btn btn-outline"
-                        style={{ padding: '2px 8px', fontSize: 11 }}
-                        onClick={() => removeCustomField(cf.id)}
+                        className={`btn ${active ? 'btn-primary' : 'btn-outline'}`}
+                        style={{ padding: '6px 12px', fontSize: 13 }}
+                        onClick={() =>
+                          onUpdateSettings({
+                            ...view.settings,
+                            gameMode: mode.id,
+                            comboRounds: view.settings.comboRounds ?? 5,
+                          })
+                        }
                       >
-                        Убрать
+                        {mode.label}
                       </button>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
-              )}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr auto', gap: 8, alignItems: 'center' }}>
-                <input
-                  className="input"
-                  placeholder="Название (напр. Тату)"
-                  value={newFieldLabel}
-                  onChange={(e) => setNewFieldLabel(e.target.value)}
-                />
-                <input
-                  className="input"
-                  placeholder="Варианты через запятую"
-                  value={newFieldPool}
-                  onChange={(e) => setNewFieldPool(e.target.value)}
-                />
+                {(view.settings.gameMode ?? 'classic') === 'combo' && (
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 12, color: 'var(--muted)' }}>Раундов в Combo Draft:</span>
+                    {[3, 5, 7].map((cnt) => (
+                      <button
+                        key={cnt}
+                        type="button"
+                        className={`btn ${(view.settings.comboRounds ?? 5) === cnt ? 'btn-primary' : 'btn-outline'}`}
+                        style={{ padding: '4px 10px', fontSize: 12 }}
+                        onClick={() => onUpdateSettings({ ...view.settings, comboRounds: cnt })}
+                      >
+                        {cnt} раундов
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
+                  <div>
+                    <label style={{ fontSize: 12, color: 'var(--muted)' }}>
+                      Мест в бункере (0 = авто {Math.max(1, Math.floor(view.players.length / 2))})
+                    </label>
+                    <input
+                      className="input"
+                      type="number"
+                      min={0}
+                      max={Math.max(1, view.players.length - 1)}
+                      value={view.settings.bunkerSeats}
+                      onChange={(e) =>
+                        onUpdateSettings({
+                          ...view.settings,
+                          bunkerSeats: Math.max(0, Number(e.target.value) || 0),
+                        })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, color: 'var(--muted)' }}>Спецкарт на игрока (0–5)</label>
+                    <input
+                      className="input"
+                      type="number"
+                      min={0}
+                      max={5}
+                      value={view.settings.specialCardsPerPlayer ?? 2}
+                      onChange={(e) =>
+                        onUpdateSettings({
+                          ...view.settings,
+                          specialCardsPerPlayer: Math.max(0, Math.min(5, Number(e.target.value) || 0)),
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+
+                {/* 18+ toggle & intensity */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <label
+                    className="card-subtle"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 12,
+                      cursor: 'pointer',
+                      borderColor: view.settings.enableAdultContent ? 'rgba(239,68,68,0.5)' : undefined,
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 14 }}>🔞 18+ карточки в паке</div>
+                      <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                        Добавляет чёрный юмор, жёсткие сюжеты, компромат и 18+ спецкарты во все категории.
+                      </div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(view.settings.enableAdultContent)}
+                      onChange={(e) =>
+                        onUpdateSettings({
+                          ...view.settings,
+                          enableAdultContent: e.target.checked,
+                          adultIntensity: view.settings.adultIntensity ?? 'mixed',
+                        })
+                      }
+                      style={{ width: 20, height: 20, accentColor: '#ef4444', flexShrink: 0 }}
+                    />
+                  </label>
+
+                  {view.settings.enableAdultContent && (
+                    <div className="card-subtle" style={{ display: 'flex', flexDirection: 'column', gap: 6, borderColor: 'rgba(239,68,68,0.35)' }}>
+                      <div style={{ fontSize: 12, color: 'var(--muted)' }}>Доля 18+ карточек в раздаче:</div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                        {(
+                          [
+                            { id: 'mixed', label: 'Смешанно (обычно)' },
+                            { id: 'high', label: 'Чаще 18+ (×4)' },
+                            { id: 'only', label: 'Приоритет 18+ (максимум)' },
+                          ] as Array<{ id: AdultIntensity; label: string }>
+                        ).map((opt) => {
+                          const active = (view.settings.adultIntensity ?? 'mixed') === opt.id;
+                          return (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              className={`btn ${active ? 'btn-danger' : 'btn-outline'}`}
+                              style={{ padding: '5px 10px', fontSize: 12 }}
+                              onClick={() =>
+                                onUpdateSettings({ ...view.settings, adultIntensity: opt.id })
+                              }
+                            >
+                              {opt.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Collapsible Advanced Settings */}
                 <button
                   type="button"
                   className="btn btn-outline"
-                  style={{ padding: '8px 12px', fontSize: 12 }}
-                  onClick={addCustomField}
+                  style={{ justifyContent: 'space-between', width: '100%', padding: '9px 12px' }}
+                  onClick={() => setShowAdvanced((v) => !v)}
                 >
-                  Добавить
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                    <Settings size={15} /> ⚙ Расширенные настройки
+                  </span>
+                  {showAdvanced ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                 </button>
+
+                {showAdvanced && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingTop: 4 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
+                      <div>
+                        <label style={{ fontSize: 12, color: 'var(--muted)' }}>Таймер хода (сек, 0 = без)</label>
+                        <input
+                          className="input"
+                          type="number"
+                          min={0}
+                          max={300}
+                          value={view.settings.turnSeconds}
+                          onChange={(e) =>
+                            onUpdateSettings({
+                              ...view.settings,
+                              turnSeconds: Math.max(0, Number(e.target.value) || 0),
+                            })
+                          }
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 12, color: 'var(--muted)' }}>Обсуждение (сек)</label>
+                        <input
+                          className="input"
+                          type="number"
+                          min={0}
+                          max={600}
+                          value={view.settings.discussionSeconds}
+                          onChange={(e) =>
+                            onUpdateSettings({
+                              ...view.settings,
+                              discussionSeconds: Math.max(0, Number(e.target.value) || 0),
+                            })
+                          }
+                        />
+                      </div>
+                    </div>
+
+                    {/* Enabled trait categories */}
+                    <div>
+                      <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>
+                        Активные поля персонажей (нажмите, чтобы отключить лишние):
+                      </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                        {TRAIT_ORDER.map((cat) => {
+                          const active = (view.settings.enabledTraits ?? TRAIT_ORDER).includes(cat);
+                          return (
+                            <button
+                              key={cat}
+                              type="button"
+                              className={`badge ${active ? 'badge-amber' : ''}`}
+                              style={{ cursor: 'pointer', opacity: active ? 1 : 0.45 }}
+                              onClick={() => toggleTrait(cat)}
+                            >
+                              {TRAIT_LABELS[cat]}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Custom fields */}
+                    <div className="card-subtle" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <div style={{ fontWeight: 700, fontSize: 13 }}>Кастомные поля (доп. характеристики)</div>
+                      {(view.settings.customFields ?? []).length > 0 && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          {view.settings.customFields.map((cf) => (
+                            <div
+                              key={cf.id}
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                gap: 8,
+                                fontSize: 12,
+                                padding: '4px 8px',
+                                background: 'rgba(255,255,255,0.03)',
+                                borderRadius: 6,
+                              }}
+                            >
+                              <span>
+                                <strong>{cf.label}</strong> ({cf.pool.length} вар.)
+                              </span>
+                              <button
+                                type="button"
+                                className="btn btn-outline"
+                                style={{ padding: '2px 8px', fontSize: 11 }}
+                                onClick={() => removeCustomField(cf.id)}
+                              >
+                                Убрать
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.6fr auto', gap: 8, alignItems: 'center' }}>
+                        <input
+                          className="input"
+                          placeholder="Поле (напр. Тату)"
+                          value={newFieldLabel}
+                          onChange={(e) => setNewFieldLabel(e.target.value)}
+                        />
+                        <input
+                          className="input"
+                          placeholder="Варианты через запятую"
+                          value={newFieldPool}
+                          onChange={(e) => setNewFieldPool(e.target.value)}
+                        />
+                        <button
+                          type="button"
+                          className="btn btn-outline"
+                          style={{ padding: '8px 12px', fontSize: 12 }}
+                          onClick={addCustomField}
+                        >
+                          Добавить
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
-
-            <button
-              className="btn btn-primary"
-              style={{ width: '100%', padding: '13px 16px', fontSize: 15, marginTop: 4 }}
-              disabled={view.players.length < 1}
-              onClick={onStartGame}
-            >
-              <Play size={18} />
-              {view.players.length === 1
-                ? 'Начать игру (Соло-тест)'
-                : `Начать игру (${view.players.length} игр.)`}
-            </button>
-          </div>
-        )}
-
-        {!isHost && (
-          <div className="card" style={{ textAlign: 'center', color: 'var(--muted)' }}>
-            Ожидаем, пока хост запустит игру…
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Pack Selection Modal */}
